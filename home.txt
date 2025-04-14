@@ -1,0 +1,1598 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Dimensions,
+  Animated,
+  Modal,
+  Alert,
+  AppState,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Link, useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Circle } from "react-native-svg";
+import * as Speech from 'expo-speech';
+import {
+  getMedications,
+  Medication,
+  getTodaysDoses,
+  recordDose,
+  DoseHistory,
+  deleteMedication,
+  updateMedication
+} from "../utils/storage";
+import { useFocusEffect } from "@react-navigation/native";
+import {
+  registerForPushNotificationsAsync,
+  scheduleMedicationReminder,
+  cancelMedicationReminders,
+  listAllScheduledNotifications,
+  updateMedicationReminders,
+} from "../utils/notifications";
+
+const { width } = Dimensions.get("window");
+
+// Create animated circle component
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+const QUICK_ACTIONS = [
+  {
+    icon: "add-circle-outline" as const,
+    label: "Add\nMedication",
+    route: "/medications/add" as const,
+    color: "#2E7D32",
+    gradient: ["#4CAF50", "#2E7D32"] as [string, string],
+  },
+  {
+    icon: "scan-outline" as const,
+    label: "Scan\nPrescription",
+    route: "/scan" as const,
+    color: "#9C27B0",
+    gradient: ["#BA68C8", "#9C27B0"] as [string, string],
+  },
+  {
+    icon: "calendar-outline" as const,
+    label: "Calendar\nView",
+    route: "/calendar" as const,
+    color: "#1976D2",
+    gradient: ["#2196F3", "#1976D2"] as [string, string],
+  },
+  {
+    icon: "people-outline" as const,
+    label: "Nurse\nConnect",
+    route: "/nurse" as const,
+    color: "#0097A7",
+    gradient: ["#00BCD4", "#0097A7"] as [string, string],
+  },
+  {
+    icon: "time-outline" as const,
+    label: "History\nLog",
+    route: "/history" as const,
+    color: "#C2185B",
+    gradient: ["#E91E63", "#C2185B"] as [string, string],
+  },
+  {
+    icon: "medical-outline" as const,
+    label: "Refill\nTracker",
+    route: "/refills" as const,
+    color: "#E64A19",
+    gradient: ["#FF5722", "#E64A19"] as [string, string],
+  },
+];
+
+// Replace CircularProgress with MedicationClock component
+interface MedicationClockProps {
+  medications: Medication[];
+  doseHistory: DoseHistory[];
+  progress: number;
+  totalDoses: number;
+  completedDoses: number;
+}
+
+function MedicationClock({
+  medications,
+  doseHistory,
+  progress,
+  totalDoses,
+  completedDoses,
+}: MedicationClockProps) {
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [handAngles, setHandAngles] = useState({ hour: 0, minute: 0 });
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  
+  // Setup pulse animation
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.3,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+  
+  // Define small offsets for medications at the same hour to prevent overlap
+  const hourOffsets: Record<string, number> = {};
+  
+  // Calculate accurate hand angles
+  useEffect(() => {
+    const updateHandAngles = () => {
+      const date = new Date();
+      const hours = date.getHours() % 12;
+      const minutes = date.getMinutes();
+      const seconds = date.getSeconds();
+      
+      // Include seconds in calculations for smoother movement
+      // Hour: (hour * 30) + (minute * 0.5) + (second * 0.00833)
+      // Minute: (minute * 6) + (second * 0.1)
+      const hourAngle = (hours * 30) + (minutes * 0.5) + (seconds * 0.00833) - 90;
+      const minuteAngle = (minutes * 6) + (seconds * 0.1) - 90;
+      
+      setHandAngles({ hour: hourAngle, minute: minuteAngle });
+      setCurrentTime(date); // Update current time for display
+    };
+    
+    // Update immediately
+    updateHandAngles();
+    
+    // Then update every second
+    const intervalId = setInterval(updateHandAngles, 1000);
+    return () => clearInterval(intervalId);
+  }, []);
+  
+  // Helper function to convert 24-hour time format to 12-hour format with AM/PM
+  const formatTo12Hour = (time24: string): string => {
+    // Parse hours and minutes from 24-hour time format (HH:MM)
+    const [hours24, minutes] = time24.split(':').map(Number);
+    
+    // Convert to 12-hour format
+    const period = hours24 >= 12 ? 'PM' : 'AM';
+    const hours12 = hours24 % 12 || 12; // 0 should be displayed as 12
+    
+    // Format as HH:MM AM/PM
+    return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+  };
+  
+  // Helper function to calculate precise angle for a time
+  const calculateTimeAngle = (hours: number, minutes: number): number => {
+    // Convert to 12-hour format
+    hours = hours % 12;
+    // Calculate degrees - each hour is 30 degrees, each minute is 0.5 degrees
+    // Subtract 90 to start at 12 o'clock position
+    return (hours * 30) + (minutes * 0.5) - 90;
+  };
+  
+  // Get all scheduled medication times for the day
+  const medicationTimes = medications.flatMap(med => 
+    med.times.map(time => {
+      // Parse hours and minutes from time string (HH:MM)
+      const [hours, minutes] = time.split(':').map(Number);
+      
+      // Calculate angle using the helper function
+      const angleInDegrees = calculateTimeAngle(hours, minutes);
+      const angleInRadians = (angleInDegrees * Math.PI) / 180;
+      
+      // Calculate x and y position on the clock (radius 75)
+      const radius = 75;
+      const x = radius * Math.cos(angleInRadians);
+      const y = radius * Math.sin(angleInRadians);
+      
+      // Exact format to check dose history with
+      const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      
+      // Check if this medication dose has been taken - use exact same logic as in the list
+      const taken = doseHistory.some(
+        dose => {
+          const doseDate = new Date(dose.timestamp);
+          const doseHour = doseDate.getHours();
+          const doseMinute = doseDate.getMinutes();
+          const medicationMatch = dose.medicationId === med.id;
+          const timeMatch = doseHour === hours && doseMinute === minutes;
+          return medicationMatch && timeMatch;
+        }
+      );
+      
+      // Use blue theme color if no color is specified
+      const medicationColor = med.color || '#1976D2';
+      
+      return {
+        id: `${med.id}-${time}`,
+        time,
+        timeKey: `${hours}:${minutes}`, // Add a key for grouping
+        formattedTime: formatTo12Hour(time),
+        hour: hours % 12 || 12, // Convert 0 to 12 for display
+        minute: minutes,
+        x,
+        y,
+        angleInDegrees,
+        angleInRadians,
+        medication: {...med, color: med.color || '#1976D2'},
+        taken
+      };
+    })
+  );
+  
+  // Group medications by time slot for stacking
+  const medicationsByTime: Record<string, any[]> = {};
+  medicationTimes.forEach(item => {
+    if (!medicationsByTime[item.timeKey]) {
+      medicationsByTime[item.timeKey] = [];
+    }
+    medicationsByTime[item.timeKey].push(item);
+  });
+  
+  // Sort medication times by hour and minute to handle potential overlaps
+  const sortedMedicationTimes = [...medicationTimes].sort((a, b) => {
+    // Sort by hour first
+    const hourDiff = a.hour - b.hour;
+    if (hourDiff !== 0) return hourDiff;
+    
+    // If same hour, sort by minute
+    return a.minute - b.minute;
+  });
+  
+  return (
+    <View style={styles.timeClockContainer}>
+      <View style={styles.clockOuter}>
+        <View style={styles.clockInner}>
+          <View style={styles.clockCenter}>
+            <Text style={styles.currentTimeText}>
+              {currentTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </Text>
+            <Text style={styles.progressText}>{Math.round(progress * 100)}% Done</Text>
+            
+            {/* Debug info - temporary */}
+            <Text style={styles.debugTimeText}>
+              {`${currentTime.getHours()}:${currentTime.getMinutes()}:${currentTime.getSeconds()}`}
+            </Text>
+          </View>
+                
+          {/* Hour numbers */}
+          {[...Array(12)].map((_, i) => {
+            const hour = i === 0 ? 12 : i;
+            const angle = i * 30;
+            const hourRadians = (angle - 90) * (Math.PI / 180);
+            const hourRadius = 75;
+            const x = hourRadius * Math.cos(hourRadians);
+            const y = hourRadius * Math.sin(hourRadians);
+            
+            return (
+              <Text 
+                key={`hour-${i}`} 
+                style={[
+                  styles.hourNumber,
+                  {
+                    transform: [
+                      { translateX: x },
+                      { translateY: y }
+                    ]
+                  }
+                ]}
+              >
+                {hour}
+              </Text>
+            );
+          })}
+          
+          {/* Hour markers */}
+          {[...Array(12)].map((_, i) => (
+            <View 
+              key={i} 
+              style={[
+                styles.hourMarker, 
+                { transform: [{ rotate: `${i * 30}deg` }] }
+              ]}
+            />
+          ))}
+          
+          {/* Medication time dots */}
+          {Object.entries(medicationsByTime).map(([timeKey, items]) => {
+            const firstItem = items[0];
+            const currentHour = currentTime.getHours();
+            const currentMinute = currentTime.getMinutes();
+            const [medHour, medMinute] = firstItem.time.split(':').map(Number);
+            
+            // Position the dot precisely on the clock circumference
+            const dotPositionAngle = calculateTimeAngle(medHour, medMinute);
+            const dotPositionRadian = (dotPositionAngle * Math.PI) / 180;
+            const dotRadius = 90; // Distance from center
+            
+            // Calculate exact position using the angle
+            const dotX = dotRadius * Math.cos(dotPositionRadian);
+            const dotY = dotRadius * Math.sin(dotPositionRadian);
+            
+            // Check if this medication time is due soon (within 15 minutes)
+            const isTriggering = 
+              (medHour === currentHour && Math.abs(medMinute - currentMinute) <= 15) ||
+              (medHour === (currentHour + 1) % 24 && currentMinute >= 45 && medMinute <= 15);
+            
+            // Determine if any medication in this time slot has been taken
+            const anyTaken = items.some(item => item.taken);
+            const allTaken = items.every(item => item.taken);
+            
+            // Adjust dot size and style based on number of medications
+            const isMultiple = items.length > 1;
+            let dotSize = isMultiple ? 14 : 12;
+            let dotStyle = {};
+            
+            // Determine dot color based on status
+            let dotColor = firstItem.medication.color; // Default color
+            
+            if (allTaken) {
+              dotColor = '#4CAF50'; // All medications taken - green
+            } else if (anyTaken) {
+              // Some medications taken - half green, half original color
+              dotStyle = {
+                backgroundColor: firstItem.medication.color,
+                borderLeftColor: '#4CAF50',
+                borderRightColor: '#4CAF50',
+                borderTopColor: 'rgba(255, 255, 255, 0.7)',
+                borderBottomColor: 'rgba(255, 255, 255, 0.7)',
+              };
+            } else if (isTriggering) {
+              dotColor = '#FF5252'; // Due soon - red
+            }
+            
+            // Create tooltip content
+            const tooltipTitle = `Medications at ${firstItem.formattedTime}`;
+            const tooltipContent = items.map(item => 
+              `${item.medication.name}: ${item.taken ? 'Taken' : 'Not taken'}`
+            ).join('\n');
+            
+            // Show debugging info by displaying medication IDs when pressed
+            const onPress = () => {
+              Alert.alert(
+                tooltipTitle,
+                tooltipContent,
+                [{ text: 'OK' }]
+              );
+            };
+            
+            // Use Animated.View for triggering dots
+            const DotComponent = isTriggering ? Animated.View : View;
+            
+            return (
+              <TouchableOpacity 
+                key={`dot-${timeKey}`}
+                onPress={onPress}
+                activeOpacity={0.7}
+                style={[
+                  styles.dotTouchable,
+                  {
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: [
+                      { translateX: dotX },
+                      { translateY: dotY },
+                    ],
+                  }
+                ]}
+              >
+                <DotComponent 
+                  style={[
+                    styles.medicationDot,
+                    {
+                      width: dotSize,
+                      height: dotSize,
+                      borderRadius: dotSize / 2,
+                      backgroundColor: dotColor,
+                      shadowColor: isTriggering ? '#FF5252' : 'rgba(0,0,0,0.3)', 
+                      shadowOpacity: isTriggering ? 0.8 : 0.3,
+                      shadowRadius: isTriggering ? 4 : 2,
+                      transform: isTriggering ? [{ scale: pulseAnim }] : [],
+                    },
+                    dotStyle
+                  ]}
+                >
+                  {isMultiple && (
+                    <View style={styles.dotCountContainer}>
+                      <Text style={styles.medicationDotCount}>
+                        {items.length}
+                      </Text>
+                    </View>
+                  )}
+                </DotComponent>
+              </TouchableOpacity>
+            );
+          })}
+          
+          {/* Clock hands container */}
+          <View style={styles.handsContainer}>
+            {/* Hour hand */}
+            <View 
+              style={[
+                styles.hourHand,
+                { transform: [{ rotate: `${handAngles.hour}deg` }] }
+              ]}
+            />
+            
+            {/* Minute hand */}
+            <View 
+              style={[
+                styles.minuteHand,
+                { transform: [{ rotate: `${handAngles.minute}deg` }] }
+              ]}
+            />
+            
+            {/* Center dot */}
+            <View style={styles.centerDot} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Add a function to test voice reminder
+const testVoiceReminder = (medication: Medication) => {
+  const speechText = `It's time to take your ${medication.name} medication, ${medication.dosage}`;
+  Speech.speak(speechText, {
+    language: 'en',
+    pitch: 1.0,
+    rate: 0.9,
+  });
+};
+
+// Function to test voice reminder system with a sample medication
+const testVoiceSystem = () => {
+  const sampleMedication = {
+    name: "Test Medication",
+    dosage: "10mg"
+  };
+  
+  const speechText = `It's time to take your ${sampleMedication.name} medication, ${sampleMedication.dosage}`;
+  Speech.speak(speechText, {
+    language: 'en',
+    pitch: 1.0,
+    rate: 0.9,
+  });
+  
+  Alert.alert(
+    "Voice Test",
+    "Testing the voice reminder system. You should hear the voice announcement.",
+    [{ text: "OK" }]
+  );
+};
+
+// Add debug function to test voice reminder system
+const debugNotifications = async () => {
+  try {
+    console.log("Debugging notifications system...");
+    
+    // List all scheduled notifications
+    await listAllScheduledNotifications();
+    
+    // Check if there are medications to reschedule
+    const allMedications = await getMedications();
+    console.log(`Found ${allMedications.length} medications to check`);
+    
+    if (allMedications.length > 0) {
+      // Get the first medication for testing
+      const testMedication = allMedications[0];
+      
+      // Test voice announcement immediately
+      testVoiceReminder(testMedication);
+      
+      // Reschedule notifications for this medication
+      console.log(`Rescheduling notifications for ${testMedication.name}`);
+      await updateMedicationReminders(testMedication);
+      
+      // Show confirmation to the user
+      Alert.alert(
+        "Notifications Fixed",
+        `Medication reminders for ${testMedication.name} have been reset. You should receive a test notification shortly.`,
+        [{ text: "OK" }]
+      );
+    } else {
+      Alert.alert(
+        "No Medications Found",
+        "No medications found to test notifications. Please add a medication first.",
+        [{ text: "OK" }]
+      );
+    }
+  } catch (error) {
+    console.error("Error debugging notifications:", error);
+    Alert.alert("Error", "Failed to debug notification system. See console for details.");
+  }
+};
+
+export default function HomeScreen() {
+  const router = useRouter();
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [todaysMedications, setTodaysMedications] = useState<Medication[]>([]);
+  const [completedDoses, setCompletedDoses] = useState(0);
+  const [doseHistory, setDoseHistory] = useState<DoseHistory[]>([]);
+  const [scannedMedications, setScannedMedications] = useState<Medication[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0); // Add a refresh key to force re-render
+
+  const loadMedications = useCallback(async () => {
+    try {
+      const [allMedications, todaysDoses] = await Promise.all([
+        getMedications(),
+        getTodaysDoses(),
+      ]);
+
+      setDoseHistory(todaysDoses);
+      setMedications(allMedications);
+
+      // Filter medications for today
+      const today = new Date();
+      const todayMeds = allMedications.filter((med) => {
+        const startDate = new Date(med.startDate);
+        const durationDays = parseInt(med.duration.split(" ")[0]);
+
+        // For ongoing medications or if within duration
+        if (
+          durationDays === -1 ||
+          (today >= startDate &&
+            today <=
+              new Date(
+                startDate.getTime() + durationDays * 24 * 60 * 60 * 1000
+              ))
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      setTodaysMedications(todayMeds);
+
+      // Calculate completed doses
+      const completed = todaysDoses.filter((dose) => dose.taken).length;
+      setCompletedDoses(completed);
+    } catch (error) {
+      console.error("Error loading medications:", error);
+    }
+  }, []);
+
+  const loadScannedMedications = useCallback(async () => {
+    try {
+      console.log("Loading all medications to find scanned ones");
+      const allMedications = await getMedications();
+      console.log(`Found ${allMedications.length} total medications`);
+      
+      // For debugging, log all medications safely
+      allMedications.forEach((med, i) => {
+        // Check if times exists before calling join to avoid errors
+        const timesStr = med.times && Array.isArray(med.times) ? med.times.join(', ') : 'undefined';
+        console.log(`Medication ${i+1}: ${med.name || 'unnamed'}, times: ${timesStr}`);
+      });
+      
+      // Filter out any medications without proper times array
+      const validMedications = allMedications.filter(med => 
+        med && med.times && Array.isArray(med.times) && med.times.length > 0
+      );
+      
+      console.log(`Found ${validMedications.length} valid medications with times`);
+      
+      setScannedMedications(validMedications);
+    } catch (error) {
+      console.error("Error loading scanned medications:", error);
+    }
+  }, []);
+
+  const setupNotifications = async () => {
+    try {
+      const token = await registerForPushNotificationsAsync();
+      if (!token) {
+        console.log("Failed to get push notification token");
+        return;
+      }
+
+      // Schedule reminders for all medications
+      const medications = await getMedications();
+      for (const medication of medications) {
+        if (medication.reminderEnabled) {
+          await scheduleMedicationReminder(medication);
+        }
+      }
+    } catch (error) {
+      console.error("Error setting up notifications:", error);
+    }
+  };
+
+  // Use useEffect for initial load
+  useEffect(() => {
+    loadMedications();
+    loadScannedMedications();
+    setupNotifications();
+
+    // Handle app state changes for notifications
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "active") {
+        loadMedications();
+        loadScannedMedications();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  // Use useFocusEffect for subsequent updates
+  useFocusEffect(
+    useCallback(() => {
+      const unsubscribe = () => {
+        // Cleanup if needed
+      };
+
+      loadMedications();
+      loadScannedMedications();
+      return () => unsubscribe();
+    }, [loadMedications, loadScannedMedications])
+  );
+
+  const handleTakeDose = async (medication: Medication, time: string) => {
+    try {
+      // Create a Date with the current date but with the specified time
+      const now = new Date();
+      const doseTime = new Date();
+      doseTime.setHours(parseInt(time.split(':')[0]), parseInt(time.split(':')[1]), 0, 0);
+      
+      await recordDose(medication.id, true, doseTime.toISOString());
+      await loadMedications(); // Reload data after recording dose
+      setRefreshKey(prev => prev + 1); // Force re-render of clock
+    } catch (error) {
+      console.error("Error recording dose:", error);
+      Alert.alert("Error", "Failed to record dose. Please try again.");
+    }
+  };
+
+  const isDoseTaken = (medicationId: string) => {
+    return doseHistory.some(
+      (dose) => dose.medicationId === medicationId && dose.taken
+    );
+  };
+
+  const progress =
+    todaysMedications.length > 0
+      ? completedDoses / (todaysMedications.length * 2)
+      : 0;
+
+  // Add a function to handle medication deletion
+  const handleDeleteMedication = async (medicationId: string) => {
+    try {
+      Alert.alert(
+        "Delete Medication",
+        "Are you sure you want to delete this medication and all its reminders?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              // Cancel existing reminders
+              await cancelMedicationReminders(medicationId);
+              // Delete the medication
+              await deleteMedication(medicationId);
+              // Refresh medication lists
+              loadMedications();
+              loadScannedMedications();
+              Alert.alert("Success", "Medication deleted successfully");
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error("Error deleting medication:", error);
+      Alert.alert("Error", "Failed to delete medication. Please try again.");
+    }
+  };
+
+  // Add a function to handle medication editing
+  const handleEditMedication = (id: string) => {
+    router.push({
+      pathname: "/medications/edit",
+      params: { medicationId: id }
+    });
+  };
+
+  // Add a helper function to convert 24-hour time to 12-hour format with AM/PM
+  const formatTo12Hour = (time24: string): string => {
+    // Parse hours and minutes from 24-hour time format (HH:MM)
+    const [hours24, minutes] = time24.split(':').map(Number);
+    
+    // Convert to 12-hour format
+    const period = hours24 >= 12 ? 'PM' : 'AM';
+    const hours12 = hours24 % 12 || 12; // 0 should be displayed as 12
+    
+    // Format as HH:MM AM/PM
+    return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+  };
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <LinearGradient colors={["#1976D2", "#0D47A1"]} style={styles.header}>
+        <View style={styles.headerContent}>
+          <View style={styles.headerTop}>
+            <View style={styles.flex1}>
+              <Text style={styles.greeting}>Daily Schedule</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.notificationButton}
+              onPress={() => setShowNotifications(true)}
+            >
+              <Ionicons name="notifications-outline" size={24} color="white" />
+              {todaysMedications.length > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationCount}>
+                    {todaysMedications.length}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+          <MedicationClock
+            key={`clock-${refreshKey}`} // Add a key to force re-render
+            medications={todaysMedications}
+            doseHistory={doseHistory}
+            progress={progress}
+            totalDoses={todaysMedications.length * 2}
+            completedDoses={completedDoses}
+          />
+        </View>
+      </LinearGradient>
+
+      <View style={styles.content}>
+        <View style={styles.quickActionsContainer}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.quickActionsGrid}>
+            {QUICK_ACTIONS.map((action) => (
+              <Link href={action.route} key={action.label} asChild>
+                <TouchableOpacity style={styles.actionButton}>
+                  <LinearGradient
+                    colors={action.gradient}
+                    style={styles.actionGradient}
+                  >
+                    <View style={styles.actionContent}>
+                      <View style={styles.actionIcon}>
+                        <Ionicons name={action.icon} size={28} color="white" />
+                      </View>
+                      <Text style={styles.actionLabel}>{action.label}</Text>
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Link>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Scanned Medications</Text>
+            <View style={styles.headerButtons}>
+              <TouchableOpacity 
+                style={styles.refreshButton}
+                onPress={() => {
+                  loadScannedMedications();
+                  Alert.alert('Refreshed', 'Medication list has been refreshed');
+                }}
+              >
+                <Text style={styles.refreshButtonText}>Refresh</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/scan')}>
+                <Text style={styles.seeAllButton}>Scan New</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          {scannedMedications.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="camera-outline" size={48} color="#ccc" />
+              <Text style={styles.emptyStateText}>
+                No scanned medications yet
+              </Text>
+              <TouchableOpacity 
+                style={styles.addMedicationButton}
+                onPress={() => router.push('/scan')}
+              >
+                <Text style={styles.addMedicationButtonText}>Scan Prescription</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            scannedMedications.flatMap((medication) => 
+              medication.times.map((time, index) => {
+                const doseId = `scanned-${medication.id}-${time}`;
+                const taken = doseHistory.some(
+                  (dose) => dose.medicationId === medication.id && 
+                          new Date(dose.timestamp).getHours() === parseInt(time.split(':')[0]) &&
+                          new Date(dose.timestamp).getMinutes() === parseInt(time.split(':')[1])
+                );
+                
+                return (
+                  <View key={doseId} style={styles.doseCard}>
+                    <View style={styles.cardHeader}>
+                      <View style={styles.leftSection}>
+                        <View
+                          style={[
+                            styles.doseBadge,
+                            { backgroundColor: `${medication.color}15` },
+                          ]}
+                        >
+                          <Ionicons
+                            name="scan-outline"
+                            size={24}
+                            color={medication.color}
+                          />
+                        </View>
+                        <View style={styles.medicationDetails}>
+                          <Text style={styles.medicineName}>{medication.name}</Text>
+                          <Text style={styles.dosageInfo}>{medication.dosage}</Text>
+                          <Text style={styles.durationInfo}>Duration: {medication.duration}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.rightSection}>
+                        <View style={styles.doseTime}>
+                          <Ionicons name="time-outline" size={16} color="#666" />
+                          <Text style={styles.timeText}>{formatTo12Hour(time)}</Text>
+                        </View>
+                        <View style={styles.actionRow}>
+                          {taken ? (
+                            <View style={[styles.takenBadge]}>
+                              <Ionicons
+                                name="checkmark-circle"
+                                size={20}
+                                color="#4CAF50"
+                              />
+                              <Text style={styles.takenText}>Taken</Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={[
+                                styles.takeDoseButton,
+                                { backgroundColor: medication.color },
+                              ]}
+                              onPress={() => handleTakeDose(medication, time)}
+                            >
+                              <Text style={styles.takeDoseText}>Take</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.cardFooter}>
+                      <TouchableOpacity
+                        style={styles.footerActionButton}
+                        onPress={() => testVoiceReminder(medication)}
+                      >
+                        <Ionicons name="volume-high-outline" size={20} color="#1a8e2d" />
+                        <Text style={styles.footerActionText}>Test</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.footerActionButton}
+                        onPress={() => handleEditMedication(medication.id)}
+                      >
+                        <Ionicons name="create-outline" size={20} color="#555" />
+                        <Text style={styles.footerActionText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.footerActionButton}
+                        onPress={() => handleDeleteMedication(medication.id)}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#f44336" />
+                        <Text style={styles.footerActionText}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
+            )
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Today's Schedule</Text>
+            <Link href="/calendar" asChild>
+              <TouchableOpacity>
+                <Text style={styles.seeAllButton}>See All</Text>
+              </TouchableOpacity>
+            </Link>
+          </View>
+          {todaysMedications.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="medical-outline" size={48} color="#ccc" />
+              <Text style={styles.emptyStateText}>
+                No medications scheduled for today
+              </Text>
+              <Link href="/medications/add" asChild>
+                <TouchableOpacity style={styles.addMedicationButton}>
+                  <Text style={styles.addMedicationButtonText}>
+                    Add Medication
+                  </Text>
+                </TouchableOpacity>
+              </Link>
+            </View>
+          ) : (
+            todaysMedications.flatMap((medication) => 
+              medication.times.map((time, index) => {
+                const doseId = `${medication.id}-${time}`;
+                const taken = doseHistory.some(
+                  (dose) => dose.medicationId === medication.id && 
+                          new Date(dose.timestamp).getHours() === parseInt(time.split(':')[0]) &&
+                          new Date(dose.timestamp).getMinutes() === parseInt(time.split(':')[1])
+                );
+                
+                return (
+                  <View key={doseId} style={styles.doseCard}>
+                    <View style={styles.cardHeader}>
+                      <View style={styles.leftSection}>
+                        <View
+                          style={[
+                            styles.doseBadge,
+                            { backgroundColor: `${medication.color}15` },
+                          ]}
+                        >
+                          <Ionicons
+                            name="medical"
+                            size={24}
+                            color={medication.color}
+                          />
+                        </View>
+                        <View style={styles.medicationDetails}>
+                          <Text style={styles.medicineName}>{medication.name}</Text>
+                          <Text style={styles.dosageInfo}>{medication.dosage}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.rightSection}>
+                        <View style={styles.doseTime}>
+                          <Ionicons name="time-outline" size={16} color="#666" />
+                          <Text style={styles.timeText}>{formatTo12Hour(time)}</Text>
+                        </View>
+                        <View style={styles.actionRow}>
+                          {taken ? (
+                            <View style={[styles.takenBadge]}>
+                              <Ionicons
+                                name="checkmark-circle"
+                                size={20}
+                                color="#4CAF50"
+                              />
+                              <Text style={styles.takenText}>Taken</Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={[
+                                styles.takeDoseButton,
+                                { backgroundColor: medication.color },
+                              ]}
+                              onPress={() => handleTakeDose(medication, time)}
+                            >
+                              <Text style={styles.takeDoseText}>Take</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.cardFooter}>
+                      <TouchableOpacity
+                        style={styles.footerActionButton}
+                        onPress={() => testVoiceReminder(medication)}
+                      >
+                        <Ionicons name="volume-high-outline" size={20} color="#1a8e2d" />
+                        <Text style={styles.footerActionText}>Test</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.footerActionButton}
+                        onPress={() => handleEditMedication(medication.id)}
+                      >
+                        <Ionicons name="create-outline" size={20} color="#555" />
+                        <Text style={styles.footerActionText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.footerActionButton}
+                        onPress={() => handleDeleteMedication(medication.id)}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#f44336" />
+                        <Text style={styles.footerActionText}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
+            )
+          )}
+        </View>
+      </View>
+
+      <Modal
+        visible={showNotifications}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowNotifications(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Notifications</Text>
+              <TouchableOpacity
+                onPress={() => setShowNotifications(false)}
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {todaysMedications.flatMap((medication) => (
+              medication.times.map((time, index) => (
+                <View key={`${medication.id}-${time}`} style={styles.notificationItem}>
+                  <View style={styles.notificationIcon}>
+                    <Ionicons name="medical" size={24} color={medication.color} />
+                  </View>
+                  <View style={styles.notificationContent}>
+                    <Text style={styles.notificationTitle}>
+                      {medication.name}
+                    </Text>
+                    <Text style={styles.notificationMessage}>
+                      {medication.dosage}
+                    </Text>
+                    <Text style={styles.notificationTime}>
+                      {formatTo12Hour(time)}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            ))}
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#f8f9fa",
+  },
+  header: {
+    paddingTop: 50,
+    paddingBottom: 25,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+  },
+  headerContent: {
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 20,
+  },
+  greeting: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "white",
+    opacity: 0.9,
+  },
+  content: {
+    flex: 1,
+    paddingTop: 20,
+  },
+  quickActionsContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 25,
+  },
+  quickActionsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 15,
+  },
+  actionButton: {
+    width: (width - 52) / 2,
+    height: 110,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  actionGradient: {
+    flex: 1,
+    padding: 15,
+  },
+  actionContent: {
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  actionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  actionLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "white",
+    marginTop: 8,
+  },
+  section: {
+    paddingHorizontal: 20,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 5,
+  },
+  seeAllButton: {
+    color: "#1976D2",
+    fontWeight: "600",
+  },
+  doseCard: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    width: "100%",
+  },
+  leftSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  rightSection: {
+    alignItems: "flex-end",
+  },
+  doseBadge: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  medicationDetails: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  medicineName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 2,
+  },
+  dosageInfo: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 2,
+  },
+  durationInfo: {
+    fontSize: 13,
+    color: "#666",
+    fontStyle: "italic",
+  },
+  doseTime: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  timeText: {
+    marginLeft: 5,
+    color: "#666",
+    fontSize: 13,
+  },
+  actionRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  takeDoseButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  takeDoseText: {
+    color: "white",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  takenBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#E3F2FD",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  takenText: {
+    color: "#1976D2",
+    fontWeight: "600",
+    fontSize: 13,
+    marginLeft: 4,
+  },
+  cardFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
+    marginTop: 12,
+    paddingTop: 8,
+  },
+  footerActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 16,
+    paddingVertical: 4,
+  },
+  footerActionText: {
+    fontSize: 12,
+    marginLeft: 4,
+    color: "#555",
+    fontWeight: "500",
+  },
+  progressContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 10,
+  },
+  progressTextContainer: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
+  progressPercentage: {
+    fontSize: 36,
+    fontWeight: "bold",
+    color: "white",
+  },
+  progressLabel: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.9)",
+    marginTop: 4,
+  },
+  progressRing: {
+    transform: [{ rotate: "-90deg" }],
+  },
+  flex1: {
+    flex: 1,
+  },
+  notificationButton: {
+    position: "relative",
+    padding: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: "#FF5252",
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#0D47A1",
+    paddingHorizontal: 4,
+  },
+  notificationCount: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+  progressDetails: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.8)",
+    marginTop: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: "80%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  closeButton: {
+    padding: 5,
+  },
+  notificationItem: {
+    flexDirection: "row",
+    padding: 15,
+    borderRadius: 12,
+    backgroundColor: "#f5f5f5",
+    marginBottom: 10,
+  },
+  notificationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#E8F5E9",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 15,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 4,
+  },
+  notificationMessage: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 4,
+  },
+  notificationTime: {
+    fontSize: 12,
+    color: "#999",
+  },
+  emptyState: {
+    alignItems: "center",
+    padding: 30,
+    backgroundColor: "white",
+    borderRadius: 16,
+    marginTop: 10,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: "#666",
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  addMedicationButton: {
+    backgroundColor: "#1976D2",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  addMedicationButtonText: {
+    color: "white",
+    fontWeight: "600",
+  },
+  refreshButton: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: '#1976D2',
+  },
+  refreshButtonText: {
+    color: '#1976D2',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  headerButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  testVoiceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1a8e2d',
+    marginHorizontal: 20,
+    marginTop: 15,
+    marginBottom: 5,
+    paddingVertical: 12,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  testVoiceButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  debugButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#9C27B0',
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 15,
+    paddingVertical: 12,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  // Clock-related styles
+  timeClockContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 10,
+  },
+  clockOuter: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 15,
+  },
+  clockInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 95,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  clockCenter: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  hourNumber: {
+    position: 'absolute',
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    width: 20,
+    height: 20,
+    textAlignVertical: 'center',
+    zIndex: 2,
+  },
+  hourMarker: {
+    position: 'absolute',
+    width: 6,
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    top: '50%',
+    right: 15,
+    transform: [{ translateY: -1 }],
+  },
+  handsContainer: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 4,
+  },
+  hourHand: {
+    position: 'absolute',
+    width: 50,
+    height: 5,
+    backgroundColor: 'white',
+    borderRadius: 5,
+    top: '50%',
+    left: '50%',
+    marginTop: -2.5,
+    transformOrigin: 'left',
+    zIndex: 3,
+  },
+  minuteHand: {
+    position: 'absolute',
+    width: 70,
+    height: 3,
+    backgroundColor: '#64B5F6',
+    borderRadius: 3,
+    top: '50%',
+    left: '50%',
+    marginTop: -1.5,
+    transformOrigin: 'left',
+    zIndex: 4,
+  },
+  centerDot: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'white',
+    zIndex: 6,
+  },
+  currentTimeText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 5,
+  },
+  progressText: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: '500',
+  },
+  debugTimeText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 3,
+  },
+  medicationDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.7)',
+    zIndex: 3,
+    elevation: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 1 },
+  },
+  dotCountContainer: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 10,
+  },
+  medicationDotCount: {
+    fontSize: 9,
+    color: 'white',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  dotTouchable: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+});
