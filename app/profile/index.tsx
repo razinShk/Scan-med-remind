@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../services/AuthContext';
 import { getMedications, Medication } from '../../utils/storage';
+import { ROUTES } from '../services/NavigationHelper';
 
 // Meal timing type definition
 interface MealTiming {
@@ -154,155 +155,216 @@ export default function ProfileScreen() {
       </LinearGradient>
       
       <ScrollView style={styles.scrollView}>
-        <View style={styles.profileSection}>
-          <View style={styles.profileHeader}>
-            <View style={styles.avatarContainer}>
-              <Text style={styles.avatarText}>
-                {user?.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}
-              </Text>
-            </View>
-            
-            {editingName ? (
-              <View style={styles.nameEditContainer}>
-                <TextInput
-                  style={styles.nameInput}
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  placeholder="Enter your name"
-                  autoFocus
-                />
-                <View style={styles.nameEditButtons}>
-                  <TouchableOpacity 
-                    style={styles.nameEditButton}
-                    onPress={() => setEditingName(false)}
-                  >
-                    <Ionicons name="close" size={20} color="#666" />
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.nameEditButton}
-                    onPress={handleUpdateName}
-                    disabled={savingName}
-                  >
-                    {savingName ? (
-                      <ActivityIndicator size="small" color="#1976D2" />
-                    ) : (
-                      <Ionicons name="checkmark" size={20} color="#1976D2" />
-                    )}
-                  </TouchableOpacity>
+        {!user ? (
+          <View style={styles.signInContainer}>
+            <Ionicons name="person-circle-outline" size={60} color="#1976D2" style={styles.signInIcon} />
+            <Text style={styles.signInTitle}>Sign In Required</Text>
+            <Text style={styles.signInText}>
+              Sign in to access your profile, sync your medications across devices,
+              and share with caregivers.
+            </Text>
+            <TouchableOpacity 
+              style={styles.signInButton}
+              onPress={() => router.push('/auth')}
+            >
+              <Text style={styles.signInButtonText}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <View style={styles.profileSection}>
+              <View style={styles.profileHeader}>
+                <View style={styles.avatarContainer}>
+                  <Text style={styles.avatarText}>
+                    {user?.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}
+                  </Text>
                 </View>
+                
+                {editingName ? (
+                  <View style={styles.nameEditContainer}>
+                    <TextInput
+                      style={styles.nameInput}
+                      value={displayName}
+                      onChangeText={setDisplayName}
+                      placeholder="Enter your name"
+                      autoFocus
+                    />
+                    <View style={styles.nameEditButtons}>
+                      <TouchableOpacity 
+                        style={styles.nameEditButton}
+                        onPress={() => setEditingName(false)}
+                      >
+                        <Ionicons name="close" size={20} color="#666" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.nameEditButton}
+                        onPress={handleUpdateName}
+                        disabled={savingName}
+                      >
+                        {savingName ? (
+                          <ActivityIndicator size="small" color="#1976D2" />
+                        ) : (
+                          <Ionicons name="checkmark" size={20} color="#1976D2" />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.nameContainer}>
+                    <Text style={styles.userName}>{user?.displayName || 'User'}</Text>
+                    <TouchableOpacity onPress={() => setEditingName(true)}>
+                      <Ionicons name="create-outline" size={20} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                
+                <Text style={styles.userEmail}>{user?.email || 'No email'}</Text>
+                
+                {isSubscribed && (
+                  <View style={styles.premiumBadge}>
+                    <Ionicons name="star" size={14} color="#FFD700" />
+                    <Text style={styles.premiumText}>Premium</Text>
+                  </View>
+                )}
               </View>
-            ) : (
-              <View style={styles.nameContainer}>
-                <Text style={styles.userName}>{user?.displayName || 'User'}</Text>
-                <TouchableOpacity onPress={() => setEditingName(true)}>
-                  <Ionicons name="create-outline" size={20} color="#666" />
+              
+              {/* Menu items */}
+              <View style={styles.menuSection}>
+                <TouchableOpacity 
+                  style={styles.menuItem}
+                  onPress={() => router.push('/subscription')}
+                >
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="star-outline" size={22} color="#1976D2" />
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuTitle}>
+                      {isSubscribed ? 'Manage Subscription' : 'Get Premium'}
+                    </Text>
+                    <Text style={styles.menuSubtitle}>
+                      {isSubscribed ? 'View your premium benefits' : 'Unlock all features'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#999" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.menuItem}
+                  onPress={() => router.push('/nurse')}
+                >
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="people-outline" size={22} color="#1976D2" />
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuTitle}>Nurse Connect</Text>
+                    <Text style={styles.menuSubtitle}>Share medications with caregivers</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#999" />
                 </TouchableOpacity>
               </View>
-            )}
-            
-            <Text style={styles.userEmail}>{user?.email}</Text>
-          </View>
-          
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{medications.length}</Text>
-              <Text style={styles.statLabel}>Medications</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{mealTimings.filter(m => m.enabled).length}</Text>
-              <Text style={styles.statLabel}>Meal Reminders</Text>
-            </View>
-          </View>
-        </View>
-        
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Subscription Status</Text>
-          <View style={styles.subscriptionCard}>
-            <View style={styles.subscriptionContent}>
-              <View style={styles.subscriptionIcon}>
-                <Ionicons 
-                  name={isSubscribed ? "checkmark-circle" : "alert-circle"} 
-                  size={32} 
-                  color={isSubscribed ? "#4CAF50" : "#FFC107"} 
-                />
-              </View>
-              <View style={styles.subscriptionInfo}>
-                <Text style={styles.subscriptionTitle}>
-                  {isSubscribed ? "Premium Active" : "Free Plan"}
-                </Text>
-                <Text style={styles.subscriptionDesc}>
-                  {isSubscribed 
-                    ? "You have access to all premium features" 
-                    : "Upgrade to unlock premium features"}
-                </Text>
-              </View>
-            </View>
-            
-            {!isSubscribed && (
-              <TouchableOpacity 
-                style={styles.upgradeButton}
-                onPress={() => router.push('/subscription/index' as any)}
-              >
-                <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-        
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Meal Timings</Text>
-          <View style={styles.mealTimingsContainer}>
-            {mealTimings.map((meal) => (
-              <View key={meal.id} style={styles.mealItem}>
-                <View style={styles.mealInfo}>
-                  <Text style={styles.mealName}>{meal.name}</Text>
-                  <Text style={styles.mealTime}>{formatTime(meal.time)}</Text>
+              
+              <View style={styles.statsContainer}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{medications.length}</Text>
+                  <Text style={styles.statLabel}>Medications</Text>
                 </View>
-                <Switch
-                  value={meal.enabled}
-                  onValueChange={() => toggleMealTiming(meal.id)}
-                  trackColor={{ false: '#ddd', true: '#bbdefb' }}
-                  thumbColor={meal.enabled ? '#1976D2' : '#f4f3f4'}
-                />
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{mealTimings.filter(m => m.enabled).length}</Text>
+                  <Text style={styles.statLabel}>Meal Reminders</Text>
+                </View>
               </View>
-            ))}
-          </View>
-        </View>
-        
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Account Options</Text>
-          <View style={styles.accountOptions}>
-            <TouchableOpacity 
-              style={styles.accountOption}
-              onPress={() => router.push('/nurse/index' as any)}
-            >
-              <Ionicons name="people-outline" size={22} color="#1976D2" style={styles.accountOptionIcon} />
-              <Text style={styles.accountOptionText}>Nurse Connect</Text>
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            </TouchableOpacity>
+            </View>
             
-            {isSubscribed && (
-              <TouchableOpacity 
-                style={styles.accountOption}
-                onPress={() => router.push('/subscription/index' as any)}
-              >
-                <Ionicons name="card-outline" size={22} color="#1976D2" style={styles.accountOptionIcon} />
-                <Text style={styles.accountOptionText}>Manage Subscription</Text>
-                <Ionicons name="chevron-forward" size={20} color="#999" />
-              </TouchableOpacity>
-            )}
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionTitle}>Subscription Status</Text>
+              <View style={styles.subscriptionCard}>
+                <View style={styles.subscriptionContent}>
+                  <View style={styles.subscriptionIcon}>
+                    <Ionicons 
+                      name={isSubscribed ? "checkmark-circle" : "alert-circle"} 
+                      size={32} 
+                      color={isSubscribed ? "#4CAF50" : "#FFC107"} 
+                    />
+                  </View>
+                  <View style={styles.subscriptionInfo}>
+                    <Text style={styles.subscriptionTitle}>
+                      {isSubscribed ? "Premium Active" : "Free Plan"}
+                    </Text>
+                    <Text style={styles.subscriptionDesc}>
+                      {isSubscribed 
+                        ? "You have access to all premium features" 
+                        : "Upgrade to unlock premium features"}
+                    </Text>
+                  </View>
+                </View>
+                
+                {!isSubscribed && (
+                  <TouchableOpacity 
+                    style={styles.upgradeButton}
+                    onPress={() => router.push('/subscription/index' as any)}
+                  >
+                    <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
             
-            <TouchableOpacity 
-              style={styles.accountOption}
-              onPress={handleSignOut}
-            >
-              <Ionicons name="log-out-outline" size={22} color="#F44336" style={styles.accountOptionIcon} />
-              <Text style={[styles.accountOptionText, { color: '#F44336' }]}>Sign Out</Text>
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            </TouchableOpacity>
-          </View>
-        </View>
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionTitle}>Meal Timings</Text>
+              <View style={styles.mealTimingsContainer}>
+                {mealTimings.map((meal) => (
+                  <View key={meal.id} style={styles.mealItem}>
+                    <View style={styles.mealInfo}>
+                      <Text style={styles.mealName}>{meal.name}</Text>
+                      <Text style={styles.mealTime}>{formatTime(meal.time)}</Text>
+                    </View>
+                    <Switch
+                      value={meal.enabled}
+                      onValueChange={() => toggleMealTiming(meal.id)}
+                      trackColor={{ false: '#ddd', true: '#bbdefb' }}
+                      thumbColor={meal.enabled ? '#1976D2' : '#f4f3f4'}
+                    />
+                  </View>
+                ))}
+              </View>
+            </View>
+            
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionTitle}>Account Options</Text>
+              <View style={styles.accountOptions}>
+                <TouchableOpacity 
+                  style={styles.accountOption}
+                  onPress={() => router.push('/nurse/index' as any)}
+                >
+                  <Ionicons name="people-outline" size={22} color="#1976D2" style={styles.accountOptionIcon} />
+                  <Text style={styles.accountOptionText}>Nurse Connect</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#999" />
+                </TouchableOpacity>
+                
+                {isSubscribed && (
+                  <TouchableOpacity 
+                    style={styles.accountOption}
+                    onPress={() => router.push('/subscription/index' as any)}
+                  >
+                    <Ionicons name="card-outline" size={22} color="#1976D2" style={styles.accountOptionIcon} />
+                    <Text style={styles.accountOptionText}>Manage Subscription</Text>
+                    <Ionicons name="chevron-forward" size={20} color="#999" />
+                  </TouchableOpacity>
+                )}
+                
+                <TouchableOpacity 
+                  style={styles.accountOption}
+                  onPress={handleSignOut}
+                >
+                  <Ionicons name="log-out-outline" size={22} color="#F44336" style={styles.accountOptionIcon} />
+                  <Text style={[styles.accountOptionText, { color: '#F44336' }]}>Sign Out</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#999" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -533,5 +595,81 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#333',
+  },
+  signInContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    marginTop: 50,
+  },
+  signInIcon: {
+    marginBottom: 20,
+  },
+  signInTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
+  },
+  signInText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 24,
+  },
+  signInButton: {
+    backgroundColor: '#1976D2',
+    paddingVertical: 15,
+    paddingHorizontal: 40,
+    borderRadius: 30,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  signInButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  premiumBadge: {
+    backgroundColor: '#FFD700',
+    borderRadius: 10,
+    padding: 5,
+    marginTop: 10,
+  },
+  premiumText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  menuSection: {
+    marginTop: 15,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  menuIconContainer: {
+    marginRight: 15,
+  },
+  menuTextContainer: {
+    flex: 1,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 5,
+  },
+  menuSubtitle: {
+    fontSize: 14,
+    color: '#666',
   },
 }); 

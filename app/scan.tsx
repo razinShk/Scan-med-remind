@@ -11,6 +11,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { extractMedicineData, Medicine, convertToAppMedication } from '../utils/medicineTextExtraction';
@@ -244,103 +245,115 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.container}>
-      {selectedImage ? (
-        <View style={styles.imageContainer}>
-          <Image source={{ uri: selectedImage }} style={styles.previewImage} />
-          {isProcessing && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.loadingText}>{extractedText ? 'Identifying medicine information...' : 'Reading text from image...'}</Text>
-            </View>
-          )}
-          
-          <View style={styles.buttonContainer}>
-            {processSuccess ? (
-              <>
-                <TouchableOpacity 
-                  style={styles.actionButton} 
-                  onPress={() => setShowRawText(true)}
-                >
-                  <FileText size={20} color="white" />
-                  <Text style={styles.actionButtonText}>View Text</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.actionButton} 
-                  onPress={() => router.push('/home')}
-                >
-                  <Text style={styles.actionButtonText}>View Medicines</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <TouchableOpacity 
-                style={styles.actionButton} 
-                onPress={tryAgain}
-                disabled={isProcessing}
-              >
-                <Text style={styles.actionButtonText}>Try Again</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      ) : (
-        <View style={styles.optionsContainer}>
-          <Text style={styles.title}>Scan Prescription</Text>
-          <Text style={styles.subtitle}>
-            Take a photo of your prescription or select an image from your gallery
-          </Text>
-          
-          <TouchableOpacity 
-            style={styles.optionButton} 
-            onPress={() => pickImage(true)}
-            disabled={isProcessing}
-          >
-            <CameraIcon size={24} color="#4CAF50" style={styles.optionIcon} />
-            <Text style={styles.optionText}>Take Photo</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.optionButton} 
-            onPress={() => pickImage(false)}
-            disabled={isProcessing}
-          >
-            <Upload size={24} color="#4CAF50" style={styles.optionIcon} />
-            <Text style={styles.optionText}>Upload from Gallery</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
-
-      <Modal
-        visible={showRawText}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowRawText(false)}
+      <LinearGradient
+        colors={['#a64bf4', '#c56cf0']}
+        style={styles.gradientBackground}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Extracted Text</Text>
-              <TouchableOpacity
-                onPress={() => setShowRawText(false)}
-                style={styles.closeButton}
-              >
-                <X size={24} color="#666" />
-              </TouchableOpacity>
+        {selectedImage ? (
+          <View style={styles.imageContainer}>
+            <Image source={{ uri: selectedImage }} style={styles.previewImage} />
+            {isProcessing && (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="large" color="#ffffff" />
+                <Text style={styles.loadingText}>{extractedText ? 'Identifying medicine information...' : 'Reading text from image...'}</Text>
+              </View>
+            )}
+            
+            <View style={styles.buttonContainer}>
+              {processSuccess ? (
+                <>
+                  <TouchableOpacity 
+                    style={styles.actionButton} 
+                    onPress={() => setShowRawText(true)}
+                  >
+                    <FileText size={20} color="white" />
+                    <Text style={styles.actionButtonText}>View Text</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.actionButton} 
+                    onPress={() => router.push('/home')}
+                  >
+                    <Text style={styles.actionButtonText}>View Medicines</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.actionButton} 
+                  onPress={tryAgain}
+                  disabled={isProcessing}
+                >
+                  <Text style={styles.actionButtonText}>Try Again</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            <ScrollView style={styles.modalScroll}>
-              <Text style={styles.extractedText}>
-                {extractedText || 'No text extracted'}
-              </Text>
-            </ScrollView>
           </View>
-        </View>
-      </Modal>
+        ) : (
+          <View style={styles.fullScreenContent}>
+            <View style={styles.iconContainer}>
+              <View style={styles.iconWrapper}>
+                <FileText size={60} color="#ffffff" />
+                <CameraIcon size={36} color="#ffffff" style={styles.cameraOverlay} />
+              </View>
+            </View>
+            
+            <Text style={styles.title}>Scan Your Prescription</Text>
+            <Text style={styles.subtitle}>
+              Upload or snap a photo of your prescription for easy medicine reminder setup.
+            </Text>
+            
+            <TouchableOpacity 
+              style={styles.takePhotoButton} 
+              onPress={() => pickImage(true)}
+              disabled={isProcessing}
+            >
+              <CameraIcon size={24} color="#a64bf4" style={styles.optionIcon} />
+              <Text style={styles.takePhotoText}>Take Photo</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.uploadButton} 
+              onPress={() => pickImage(false)}
+              disabled={isProcessing}
+            >
+              <Upload size={24} color="#ffffff" style={styles.optionIcon} />
+              <Text style={styles.uploadText}>Upload from Gallery</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        <Modal
+          visible={showRawText}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowRawText(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Extracted Text</Text>
+                <TouchableOpacity
+                  onPress={() => setShowRawText(false)}
+                  style={styles.closeButton}
+                >
+                  <X size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalScroll}>
+                <Text style={styles.extractedText}>
+                  {extractedText || 'No text extracted'}
+                </Text>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      </LinearGradient>
     </View>
   );
 }
@@ -348,11 +361,106 @@ export default function ScanScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+  },
+  gradientBackground: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  fullScreenContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  iconContainer: {
+    marginBottom: 30,
+  },
+  iconWrapper: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 100,
+    height: 100,
+  },
+  cameraOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#a64bf4',
+    padding: 6,
+    borderRadius: 8,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: 50,
+    paddingHorizontal: 10,
+  },
+  takePhotoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginBottom: 15,
+    width: '100%',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginBottom: 15,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#ffffff',
+  },
+  optionIcon: {
+    marginRight: 12,
+  },
+  takePhotoText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#a64bf4',
+  },
+  uploadText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   imageContainer: {
     flex: 1,
+    width: '100%',
     position: 'relative',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
   previewImage: {
     flex: 1,
@@ -369,47 +477,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
   },
-  optionsContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#333',
-  },
-  subtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    color: '#666',
-    marginBottom: 40,
-    paddingHorizontal: 20,
-  },
-  optionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 20,
-    width: '90%',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  optionIcon: {
-    marginRight: 15,
-  },
-  optionText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-  },
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -421,7 +488,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   actionButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#a64bf4',
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 25,
@@ -430,6 +497,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
   actionButtonText: {
     color: 'white',

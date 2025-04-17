@@ -33,6 +33,7 @@ export default function AuthScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [mode, setMode] = useState(AuthMode.SIGN_IN);
   const [error, setError] = useState("");
@@ -59,7 +60,7 @@ export default function AuthScreen() {
         router.replace("/home");
       } else if (mode === AuthMode.SIGN_UP) {
         // Sign up
-        if (!email || !password || !confirmPassword || !name) {
+        if (!email || !password || !confirmPassword || !name || !username) {
           setError("All fields are required");
           return;
         }
@@ -73,8 +74,13 @@ export default function AuthScreen() {
           setError("Password must be at least 6 characters");
           return;
         }
+
+        if (username.length < 3) {
+          setError("Username must be at least 3 characters");
+          return;
+        }
         
-        await signUp(email, password, name, referralCode);
+        await signUp(email, password, name, username, referralCode);
         router.replace("/home");
       } else if (mode === AuthMode.RESET_PASSWORD) {
         // Reset password
@@ -178,6 +184,15 @@ export default function AuthScreen() {
               placeholder="Name"
               value={name}
               onChangeText={setName}
+            />
+            
+            <TextInput
+              style={styles.input}
+              placeholder="Username"
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              autoCorrect={false}
             />
             
             <TextInput

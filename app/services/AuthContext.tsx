@@ -20,6 +20,7 @@ interface User {
   uid: string;
   email: string | null;
   displayName: string | null;
+  username: string | null;
   photoURL: string | null;
   referralCode?: string;
   isSubscribed?: boolean;
@@ -40,7 +41,7 @@ interface AuthContextProps {
   user: User | null;
   loading: boolean;
   isSubscribed: boolean;
-  signUp: (email: string, password: string, name: string, referralCode?: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, username: string, referralCode?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -176,9 +177,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Sign up with email and password
-  const signUp = async (email: string, password: string, name: string, referralCode?: string) => {
+  const signUp = async (email: string, password: string, name: string, username: string, referralCode?: string) => {
     try {
       setLoading(true);
+      
+      // Check if username is already taken
+      const { data: existingUser, error: checkError } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('username', username)
+        .single();
+
+      if (existingUser) {
+        throw new Error('Username is already taken');
+      }
       
       // Generate a new referral code for this user
       const newReferralCode = generateReferralCode();
@@ -186,6 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Sign up with Supabase
       const { data, error } = await signUpWithEmail(email, password, {
         name,
+        username,
         referral_code: newReferralCode,
       });
       
@@ -197,6 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: data.user.id,
           name,
           email,
+          username,
           referral_code: newReferralCode,
           created_at: new Date().toISOString(),
         });
@@ -204,7 +218,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // If the user provided a referral code, apply it
         if (referralCode) {
           // Implement referral code logic
-          // This would typically be done in a server-side function
           console.log('Applying referral code:', referralCode);
         }
         
@@ -280,7 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
       
       // Update the user locally
-      setUser(prev => prev ? { ...prev, ...data } : null);
+    setUser(prev => prev ? { ...prev, ...data } : null);
       
       Alert.alert('Success', 'Profile updated successfully');
     } catch (error: any) {

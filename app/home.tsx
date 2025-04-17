@@ -34,6 +34,8 @@ import {
   updateMedicationReminders,
 } from "../utils/notifications";
 import { ROUTES } from './services/NavigationHelper';
+import { syncSharedMedications } from './services/NurseConnectionService';
+import { useAuth } from './services/AuthContext';
 
 const { width } = Dimensions.get("window");
 
@@ -105,6 +107,27 @@ function MedicationClock({
   const [handAngles, setHandAngles] = useState({ hour: 0, minute: 0 });
   const [selectedTimeKey, setSelectedTimeKey] = useState<string | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
+  
+  // Animation value for pulsing effect
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  
+  // Start pulse animation when component mounts
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
 
   // Use this effect to calculate accurate hand angles
   useEffect(() => {
@@ -365,8 +388,12 @@ function MedicationClock({
               // Determine if all medications at this time are taken
               const allTaken = meds.every(item => item.taken);
               
-              const dotColor = allTaken ? '#4CAF50' : 
-                             anyTimeToTake ? medicationColor : 
+              // Use clear color scheme:
+              // Green for taken medication
+              // Red for upcoming medication
+              // Default color with lower opacity for future medications
+              const dotColor = allTaken ? '#4CAF50' : // Green for taken
+                             anyTimeToTake ? '#FF0000' : // Red for upcoming
                              medicationColor + '80'; // 50% opacity for future
               
               // Calculate label position to ensure it stays on screen
@@ -374,6 +401,18 @@ function MedicationClock({
               
               // Check if this dot is selected
               const isSelected = selectedTimeKey === timeKey;
+              
+              // Determine if this medication is very near in time (within 30 minutes)
+              const nowTime = new Date(currentTime);
+              const medTime = new Date();
+              medTime.setHours(hours, minutes, 0, 0);
+              
+              const timeDiffMinutes = Math.abs(
+                (medTime.getHours() * 60 + medTime.getMinutes()) - 
+                (nowTime.getHours() * 60 + nowTime.getMinutes())
+              );
+              
+              const isVeryNearInTime = timeDiffMinutes <= 30 && !allTaken;
 
               return (
                 <TouchableOpacity
@@ -413,22 +452,30 @@ function MedicationClock({
                         width: anyTimeToTake && !allTaken || isSelected ? 18 : 12,
                         height: anyTimeToTake && !allTaken || isSelected ? 18 : 12,
                         borderRadius: anyTimeToTake && !allTaken || isSelected ? 9 : 6,
-                        borderWidth: isSelected ? 3 : anyTimeToTake && !allTaken ? 2 : 0,
-                        borderColor: isSelected ? '#FFFFFF' : 'white',
-                        // Add a shadow when selected
-                        shadowColor: isSelected ? "#FFFFFF" : "transparent",
-                        shadowOffset: isSelected ? { width: 0, height: 0 } : undefined,
-                        shadowOpacity: isSelected ? 0.8 : 0,
-                        shadowRadius: isSelected ? 5 : 0,
-                        elevation: isSelected ? 5 : 0,
+                        // Add thin border to all dots for better visibility
+                        borderWidth: isSelected ? 3 : anyTimeToTake && !allTaken ? 2 : 0.5,
+                        borderColor: isSelected ? '#FFFFFF' : anyTimeToTake && !allTaken ? 'white' : 'rgba(255, 255, 255, 0.8)',
+                        // Add a shadow when selected or for upcoming doses
+                        shadowColor: isSelected ? "#FFFFFF" : anyTimeToTake ? "#FF0000" : "transparent",
+                        shadowOffset: { width: 0, height: 0 },
+                        shadowOpacity: isSelected ? 0.8 : anyTimeToTake ? 0.6 : 0,
+                        shadowRadius: isSelected ? 5 : anyTimeToTake ? 3 : 0,
+                        elevation: isSelected ? 5 : anyTimeToTake ? 3 : 0,
                       }
                     ]} 
                   />
-                  {anyTimeToTake && !allTaken && (
-                    <View style={[
-                      styles.pulsingOverlay, 
-                      { backgroundColor: `${medicationColor}40` }
-                    ]} />
+                  {isVeryNearInTime && (
+                    <Animated.View 
+                      style={[
+                        styles.pulsingOverlay,
+                        { 
+                          backgroundColor: 'rgba(255, 0, 0, 0.3)',
+                          transform: [{ scale: pulseAnim }],
+                          borderWidth: 0.5,
+                          borderColor: 'rgba(255, 0, 0, 0.8)',
+                        }
+                      ]}
+                    />
                   )}
                   
                   {/* Medication name labels - only show when this dot is selected */}
@@ -610,6 +657,7 @@ function MedicationLabels({
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [medications, setMedications] = useState<Medication[]>([]);
   const [todaysMedications, setTodaysMedications] = useState<Medication[]>([]);
@@ -632,6 +680,11 @@ export default function HomeScreen() {
 
   const loadMedications = useCallback(async () => {
     try {
+      // Sync shared medications if the user is logged in
+      if (user) {
+        await syncSharedMedications(user.uid);
+      }
+      
       const [allMedications, todaysDoses] = await Promise.all([
         getMedications(),
         getTodaysDoses(),
@@ -668,7 +721,7 @@ export default function HomeScreen() {
     } catch (error) {
       console.error("Error loading medications:", error);
     }
-  }, []);
+  }, [user]);
 
   const loadScannedMedications = useCallback(async () => {
     try {
@@ -1610,14 +1663,19 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     backgroundColor: 'white',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
   },
   pulsingOverlay: {
     position: 'absolute',
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 152, 0, 0.3)',
+    backgroundColor: 'rgba(255, 0, 0, 0.3)',
     opacity: 0.7,
+    zIndex: 2,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 0, 0, 0.8)',
   },
   handsContainer: {
     position: 'absolute',

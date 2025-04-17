@@ -10,7 +10,6 @@ import {
   Dimensions,
   Platform,
   KeyboardAvoidingView,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +21,7 @@ import {
   scheduleMedicationReminder,
   scheduleRefillReminder,
 } from "../../utils/notifications";
+import { showSuccessToast, showErrorToast } from "../../utils/toast";
 
 const { width } = Dimensions.get("window");
 
@@ -123,7 +123,7 @@ export default function AddMedicationScreen() {
   const handleSave = async () => {
     try {
       if (!validateForm()) {
-        Alert.alert("Error", "Please fill in all required fields correctly");
+        showErrorToast("Please fill in all required fields correctly");
         return;
       }
 
@@ -154,25 +154,11 @@ export default function AddMedicationScreen() {
         await scheduleRefillReminder(medicationData);
       }
 
-      Alert.alert(
-        "Success",
-        "Medication added successfully",
-        [
-          {
-            text: "OK",
-            onPress: () => router.back(),
-          },
-        ],
-        { cancelable: false }
-      );
+      showSuccessToast("Medication added successfully");
+      router.back();
     } catch (error) {
       console.error("Save error:", error);
-      Alert.alert(
-        "Error",
-        "Failed to save medication. Please try again.",
-        [{ text: "OK" }],
-        { cancelable: false }
-      );
+      showErrorToast("Failed to save medication. Please try again.");
     } finally {
       setIsSubmitting(false);
     }

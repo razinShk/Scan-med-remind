@@ -7,6 +7,7 @@ import {
   ScrollView,
   Platform,
   Alert,
+  Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,12 +23,12 @@ import {
 
 type EnrichedDoseHistory = DoseHistory & { medication?: Medication };
 
+const { width } = Dimensions.get('window');
+
 export default function HistoryScreen() {
   const router = useRouter();
   const [history, setHistory] = useState<EnrichedDoseHistory[]>([]);
-  const [selectedFilter, setSelectedFilter] = useState<
-    "all" | "taken" | "missed"
-  >("all");
+  const [selectedFilter, setSelectedFilter] = useState<"all" | "taken" | "missed">("all");
 
   const loadHistory = useCallback(async () => {
     try {
@@ -108,33 +109,29 @@ export default function HistoryScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#1a8e2d", "#146922"]}
+        colors={['#E91E63', '#D81B60']}
         style={styles.headerGradient}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-      />
-
-      <View style={styles.content}>
+        end={{ x: 1, y: 1 }}
+      >
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backButton}
           >
-            <Ionicons name="chevron-back" size={28} color="#1a8e2d" />
+            <Ionicons name="chevron-back" size={28} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>History Log</Text>
         </View>
+      </LinearGradient>
 
+      <View style={styles.content}>
         <View style={styles.filtersContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filtersScroll}
-          >
+          <View style={styles.filterTabsWrapper}>
             <TouchableOpacity
               style={[
-                styles.filterButton,
-                selectedFilter === "all" && styles.filterButtonActive,
+                styles.filterTab,
+                selectedFilter === "all" && styles.filterTabActive,
               ]}
               onPress={() => setSelectedFilter("all")}
             >
@@ -149,8 +146,8 @@ export default function HistoryScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[
-                styles.filterButton,
-                selectedFilter === "taken" && styles.filterButtonActive,
+                styles.filterTab,
+                selectedFilter === "taken" && styles.filterTabActive,
               ]}
               onPress={() => setSelectedFilter("taken")}
             >
@@ -165,8 +162,8 @@ export default function HistoryScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[
-                styles.filterButton,
-                selectedFilter === "missed" && styles.filterButtonActive,
+                styles.filterTab,
+                selectedFilter === "missed" && styles.filterTabActive,
               ]}
               onPress={() => setSelectedFilter("missed")}
             >
@@ -179,7 +176,7 @@ export default function HistoryScreen() {
                 Missed
               </Text>
             </TouchableOpacity>
-          </ScrollView>
+          </View>
         </View>
 
         <ScrollView
@@ -191,82 +188,44 @@ export default function HistoryScreen() {
               <Text style={styles.dateHeader}>
                 {new Date(date).toLocaleDateString("default", {
                   weekday: "long",
-                  month: "long",
                   day: "numeric",
+                  month: "long",
                 })}
               </Text>
               {doses.map((dose) => (
                 <View key={dose.id} style={styles.historyCard}>
-                  <View
-                    style={[
-                      styles.medicationColor,
-                      { backgroundColor: dose.medication?.color || "#ccc" },
-                    ]}
-                  />
-                  <View style={styles.medicationInfo}>
-                    <Text style={styles.medicationName}>
-                      {dose.medication?.name || "Unknown Medication"}
-                    </Text>
-                    <Text style={styles.medicationDosage}>
-                      {dose.medication?.dosage}
-                    </Text>
-                    <Text style={styles.timeText}>
-                      {new Date(dose.timestamp).toLocaleTimeString("default", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Text>
-                  </View>
-                  <View style={styles.statusContainer}>
-                    {dose.taken ? (
-                      <View
-                        style={[
-                          styles.statusBadge,
-                          { backgroundColor: "#E8F5E9" },
-                        ]}
-                      >
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={16}
-                          color="#4CAF50"
-                        />
-                        <Text style={[styles.statusText, { color: "#4CAF50" }]}>
-                          Taken
-                        </Text>
+                  <View style={styles.cardContent}>
+                    <View style={styles.medicationInfo}>
+                      <Text style={styles.medicationName}>
+                        {dose.medication?.name || "Unknown Medication"}
+                      </Text>
+                      <Text style={styles.timeText}>
+                        {new Date(dose.timestamp).toLocaleTimeString("default", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </Text>
+                    </View>
+                    <View style={styles.statusContainer}>
+                      <View style={styles.statusBadge}>
+                        <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                        <Text style={styles.statusText}>Taken</Text>
                       </View>
-                    ) : (
-                      <View
-                        style={[
-                          styles.statusBadge,
-                          { backgroundColor: "#FFEBEE" },
-                        ]}
-                      >
-                        <Ionicons
-                          name="close-circle"
-                          size={16}
-                          color="#F44336"
-                        />
-                        <Text style={[styles.statusText, { color: "#F44336" }]}>
-                          Missed
-                        </Text>
-                      </View>
-                    )}
+                    </View>
                   </View>
                 </View>
               ))}
             </View>
           ))}
-
-          <View style={styles.clearDataContainer}>
-            <TouchableOpacity
-              style={styles.clearDataButton}
-              onPress={handleClearAllData}
-            >
-              <Ionicons name="trash-outline" size={20} color="#FF5252" />
-              <Text style={styles.clearDataText}>Clear All Data</Text>
-            </TouchableOpacity>
-          </View>
         </ScrollView>
+
+        <TouchableOpacity
+          style={styles.clearButton}
+          onPress={handleClearAllData}
+        >
+          <Ionicons name="trash-outline" size={24} color="#fff" />
+          <Text style={styles.clearButtonText}>Clear All Data</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -275,163 +234,148 @@ export default function HistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: '#f8f9fa',
   },
   headerGradient: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: Platform.OS === "ios" ? 140 : 120,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingBottom: 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  backButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   content: {
     flex: 1,
-    paddingTop: Platform.OS === "ios" ? 50 : 30,
+    marginTop: -20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: '#f8f9fa',
+    overflow: 'hidden',
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
+  filtersContainer: {
+    paddingTop: 20,
     paddingHorizontal: 20,
-    paddingBottom: 20,
-    zIndex: 1,
+    backgroundColor: '#fff',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "white",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
+  filterTabsWrapper: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f3f5',
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 16,
+  },
+  filterTab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  filterTabActive: {
+    backgroundColor: '#E91E63',
+  },
+  filterText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  filterTextActive: {
+    color: '#fff',
+  },
+  historyContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  dateGroup: {
+    marginTop: 24,
+  },
+  dateHeader: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#E91E63',
+    marginBottom: 12,
+  },
+  historyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 12,
+    padding: 16,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "white",
-    marginLeft: 15,
-  },
-  filtersContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    backgroundColor: "#f8f9fa",
-    paddingTop: 10,
-  },
-  filtersScroll: {
-    paddingRight: 20,
-  },
-  filterButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: "white",
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  filterButtonActive: {
-    backgroundColor: "#1a8e2d",
-    borderColor: "#1a8e2d",
-  },
-  filterText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#666",
-  },
-  filterTextActive: {
-    color: "white",
-  },
-  historyContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    backgroundColor: "#f8f9fa",
-  },
-  dateGroup: {
-    marginBottom: 25,
-  },
-  dateHeader: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#666",
-    marginBottom: 12,
-  },
-  historyCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  medicationColor: {
-    width: 12,
-    height: 40,
-    borderRadius: 6,
-    marginRight: 16,
+  cardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   medicationInfo: {
     flex: 1,
   },
   medicationName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1a1a1a',
     marginBottom: 4,
   },
-  medicationDosage: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 2,
-  },
   timeText: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    color: '#666',
   },
   statusContainer: {
-    alignItems: "flex-end",
+    marginLeft: 16,
   },
   statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
     paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderRadius: 20,
   },
   statusText: {
-    marginLeft: 4,
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
+    color: '#4CAF50',
+    marginLeft: 4,
   },
-  clearDataContainer: {
-    padding: 20,
-    alignItems: "center",
-    marginTop: 20,
-    marginBottom: 40,
+  clearButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E91E63',
+    marginHorizontal: 20,
+    marginBottom: Platform.OS === 'ios' ? 40 : 20,
+    paddingVertical: 16,
+    borderRadius: 16,
+    shadowColor: '#E91E63',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  clearDataButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFEBEE",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#FFCDD2",
-  },
-  clearDataText: {
-    color: "#FF5252",
+  clearButtonText: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '600',
+    color: '#fff',
     marginLeft: 8,
   },
 });

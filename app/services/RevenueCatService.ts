@@ -1,3 +1,9 @@
+// Add at the top of the file, before other imports
+declare module '@env' {
+  export const REVENUECAT_PUBLIC_SDK: string;
+  export const REVENUECAT_SECRET_KEY: string;
+}
+
 import Purchases, { PurchasesPackage, PurchasesOffering } from 'react-native-purchases';
 import { Platform } from 'react-native';
 import { REVENUECAT_PUBLIC_SDK, REVENUECAT_SECRET_KEY } from '@env';

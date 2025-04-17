@@ -4,7 +4,7 @@
     "slug": "medremind",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/logomed.png",
     "scheme": "medremind",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -14,25 +14,29 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/logomed.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.pinnacle.ScanMedRemind"
+      "package": "com.pinnacle.ScanMedRemind",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/logomed.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/NoBgLogoMed.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#4CAF50"
         }
       ],
       [
@@ -44,6 +48,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "cdb14baa-b073-435f-b904-510945644712"
+      }
     }
   }
 }

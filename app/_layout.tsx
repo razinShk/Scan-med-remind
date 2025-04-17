@@ -6,6 +6,7 @@ import { SubscriptionProvider } from "./services/SubscriptionContext";
 import { useEffect, useState } from 'react';
 import { initializeRevenueCat } from './services/RevenueCatService';
 import { useFonts } from 'expo-font';
+import Toast from 'react-native-toast-message';
 
 // Wrap the app with our providers
 export default function Layout() {
@@ -166,6 +167,7 @@ export default function Layout() {
               }}
             />
           </Stack>
+          <Toast />
         </>
       </SubscriptionProvider>
     </AuthProvider>

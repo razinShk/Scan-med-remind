@@ -128,14 +128,15 @@ export default function CalendarScreen() {
     setCurrentMonth(newMonth);
     setCurrentYear(newYear);
     
-    // Set selected date to preserve day but update month/year
-    const newDate = new Date(selectedDate);
-    newDate.setFullYear(newYear);
-    newDate.setMonth(newMonth);
+    // Set selected date to first day of new month
+    const newDate = new Date(newYear, newMonth, 1);
     
-    // Adjust for invalid days (e.g., Feb 30th)
-    if (newDate.getMonth() !== newMonth) {
-      newDate.setDate(0); // Last day of previous month
+    // If selected date was within the valid range of the month, try to keep the same day
+    const currentDay = selectedDate.getDate();
+    const lastDayOfNewMonth = new Date(newYear, newMonth + 1, 0).getDate();
+    
+    if (currentDay <= lastDayOfNewMonth) {
+      newDate.setDate(currentDay);
     }
     
     setSelectedDate(newDate);
@@ -147,6 +148,8 @@ export default function CalendarScreen() {
         animated: true
       });
     }
+    
+    console.log(`Changed to month: ${MONTHS[newMonth]} ${newYear}`);
   };
 
   // Get all dates for the current month
@@ -500,14 +503,30 @@ export default function CalendarScreen() {
       />
 
       <View style={styles.content}>
-        {/* Month header with pan responder for swiping */}
-        <View 
-          style={styles.header}
-          {...panResponder.panHandlers}
-        >
-          <Text style={styles.monthText}>
-            {MONTHS[currentMonth].toUpperCase()}
-          </Text>
+        {/* Month header with navigation buttons and pan responder for swiping */}
+        <View style={styles.headerContainer}>
+          <View 
+            style={styles.header}
+            {...panResponder.panHandlers}
+          >
+            <TouchableOpacity 
+              style={styles.monthNavButton}
+              onPress={() => handleMonthChange(-1)}
+            >
+              <Ionicons name="chevron-back" size={22} color="white" />
+            </TouchableOpacity>
+            
+            <Text style={styles.monthText}>
+              {MONTHS[currentMonth].toUpperCase()} {currentYear}
+            </Text>
+            
+            <TouchableOpacity 
+              style={styles.monthNavButton}
+              onPress={() => handleMonthChange(1)}
+            >
+              <Ionicons name="chevron-forward" size={22} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {renderCalendar()}
@@ -541,13 +560,27 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: Platform.OS === "ios" ? 60 : 40,
   },
+  headerContainer: {
+    paddingHorizontal: 15,
+    marginBottom: 15,
+  },
   header: {
-    paddingHorizontal: 20,
-    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  monthNavButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
   },
   monthText: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "white",
     letterSpacing: 1,
   },
