@@ -56,8 +56,16 @@ export default function AuthScreen() {
           return;
         }
         
-        await signIn(email, password);
-        router.replace("/home");
+        try {
+          await signIn(email, password);
+          // If we get here without an error and user is set, navigate
+          // The auth state listener in AuthContext will set the user
+          // We'll let the useEffect below handle the navigation once user is set
+        } catch (err) {
+          console.error("Sign in error:", err);
+          setError("Invalid email or password. Please try again.");
+          return;
+        }
       } else if (mode === AuthMode.SIGN_UP) {
         // Sign up
         if (!email || !password || !confirmPassword || !name || !username) {
@@ -80,8 +88,15 @@ export default function AuthScreen() {
           return;
         }
         
-        await signUp(email, password, name, username, referralCode);
-        router.replace("/home");
+        try {
+          await signUp(email, password, name, username, referralCode);
+          // If signup is successful, the auth listener will update the user
+          // and the useEffect will navigate
+        } catch (err) {
+          console.error("Sign up error:", err);
+          setError("Failed to create account. Please try again.");
+          return;
+        }
       } else if (mode === AuthMode.RESET_PASSWORD) {
         // Reset password
         if (!email) {
@@ -90,6 +105,7 @@ export default function AuthScreen() {
         }
         
         await resetPassword(email);
+        setError("Password reset email sent. Please check your inbox.");
         setMode(AuthMode.SIGN_IN);
       }
     } catch (err) {
@@ -102,7 +118,9 @@ export default function AuthScreen() {
     try {
       setError("");
       await signInWithGoogle();
-    router.replace("/home");
+      // Google sign-in isn't implemented yet (as per the AuthContext code),
+      // but when it is, the user will be set by the auth listener
+      // and useEffect will navigate
     } catch (err) {
       console.error("Google sign-in error:", err);
       setError("Google sign-in failed. Please try again.");
@@ -306,22 +324,26 @@ export default function AuthScreen() {
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-    <LinearGradient colors={["#4CAF50", "#2E7D32"]} style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-      <View style={styles.content}>
-        <View style={styles.iconContainer}>
-          <Ionicons name="medical" size={80} color="white" />
-        </View>
+    <LinearGradient colors={["#1976D2", "#0D47A1"]} style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.content}>
+          <View style={styles.logoContainer}>
+            <Image 
+              source={require('../assets/NoBgLogoMed.png')} 
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
 
-        <Text style={styles.title}>MedRemind</Text>
-        <Text style={styles.subtitle}>Your Personal Medication Assistant</Text>
-        
-        <View style={styles.card}>
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              {renderForm()}
+          <Text style={styles.title}>MedRemind</Text>
+          <Text style={styles.subtitle}>Your Personal Medication Assistant</Text>
+          
+          <View style={styles.card}>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {renderForm()}
+          </View>
         </View>
-      </View>
-        </ScrollView>
+      </ScrollView>
     </LinearGradient>
     </KeyboardAvoidingView>
   );
@@ -340,17 +362,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    borderRadius: 60,
+  logoContainer: {
+    width: width * 0.5, // 50% of screen width
+    height: width * 0.5, // Keep it square
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 0,
+  },
+  logo: {
+    width: "100%",
+    height: "100%",
   },
   title: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: "bold",
     color: "white",
     marginBottom: 10,
@@ -359,9 +383,9 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 16,
     color: "rgba(255, 255, 255, 0.9)",
-    marginBottom: 40,
+    marginBottom: 30,
     textAlign: "center",
   },
   card: {

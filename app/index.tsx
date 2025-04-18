@@ -102,7 +102,7 @@ export default function SplashScreen() {
           style={styles.logo}
           resizeMode="contain"
         />
-        <Text style={styles.appName}>ScanRemind</Text>
+        <Text style={styles.appName}>MedRemind</Text>
       </Animated.View>
     </View>
   );
@@ -121,6 +121,7 @@ const styles = StyleSheet.create({
   logo: {
     width: 200,
     height: 200,
+    marginBottom: 0,
   },
   appName: {
     color: "white",

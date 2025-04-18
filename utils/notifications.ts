@@ -4,34 +4,32 @@ import { Medication } from "./storage";
 import * as Speech from 'expo-speech';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// Keep track of active notification subscription
+let notificationSubscription: Notifications.Subscription | null = null;
+
+// Use a debounce mechanism to prevent multiple voice announcements
+const voiceAnnouncements = new Map<string, number>();
+const DEBOUNCE_TIME = 10000; // 10 seconds debounce
+
 // Configure notification handler with voice announcements
 export const configureNotifications = () => {
   console.log("Configuring notification handler with voice announcements");
+  
+  // Remove any existing notification subscription
+  if (notificationSubscription) {
+    notificationSubscription.remove();
+    notificationSubscription = null;
+  }
+
+  // Remove any existing notification handler
+  Notifications.setNotificationHandler(null);
   
   // Set up notification behavior
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       console.log("Received notification:", notification.request.content);
       
-      // Extract medication information from the notification
-      const data = notification.request.content.data;
-      
-      // Use text-to-speech to announce the medication reminder
-      if (data && data.medicationName) {
-        const speechText = `It's time to take your ${data.medicationName} medication, ${data.medicationDosage || ''}`;
-        console.log("Speaking medication reminder:", speechText);
-        
-        try {
-          await Speech.speak(speechText, {
-            language: 'en',
-            pitch: 1.0,
-            rate: 0.9,
-          });
-        } catch (error) {
-          console.error("Error speaking medication reminder:", error);
-        }
-      }
-      
+      // Return display configuration without handling voice here
       return {
         shouldShowAlert: true,
         shouldPlaySound: true,
@@ -40,27 +38,44 @@ export const configureNotifications = () => {
     },
   });
   
-  // Add a listener for notification received (when app is in foreground)
-  const subscription = Notifications.addNotificationReceivedListener(notification => {
-    console.log("Foreground notification received:", notification.request.identifier);
-    
-    // Extract medication data
+  // Set up a single foreground notification listener that handles voice announcements
+  notificationSubscription = Notifications.addNotificationReceivedListener(notification => {
+    const identifier = notification.request.identifier;
     const data = notification.request.content.data;
+    console.log("Foreground notification received:", identifier);
     
-    // Use text-to-speech to announce the reminder even in foreground
+    // Handle voice announcements here (only in foreground listener)
     if (data && data.medicationName) {
-      const speechText = `It's time to take your ${data.medicationName} medication, ${data.medicationDosage || ''}`;
-      Speech.speak(speechText, {
-        language: 'en',
-        pitch: 1.0,
-        rate: 0.9,
-      });
+      // Create a unique key for this medication/time combination
+      const announcementKey = `${data.medicationId}-${data.time}`;
+      const now = Date.now();
+      
+      // Check if we've announced this medication recently
+      const lastAnnounced = voiceAnnouncements.get(announcementKey) || 0;
+      if (now - lastAnnounced > DEBOUNCE_TIME) {
+        // It's been more than our debounce time, proceed with announcement
+        voiceAnnouncements.set(announcementKey, now);
+        
+        const speechText = `It's time to take your ${data.medicationName} medication, ${data.medicationDosage || ''}`;
+        console.log("Speaking medication reminder:", speechText);
+        
+        try {
+          // Stop any ongoing speech
+          Speech.stop();
+          // Start new speech
+          Speech.speak(speechText, {
+            language: 'en',
+            pitch: 1.0,
+            rate: 0.9,
+          });
+        } catch (error) {
+          console.error("Error speaking medication reminder:", error);
+        }
+      } else {
+        console.log("Skipping duplicate voice announcement for:", announcementKey);
+      }
     }
   });
-  
-  // Clean up the listener when the component unmounts
-  // Since this is in a function, we can't properly clean up here, but this is good practice to note
-  // return () => subscription.remove();
 };
 
 export async function registerForPushNotificationsAsync(): Promise<
@@ -185,25 +200,6 @@ export async function scheduleMedicationReminder(
           scheduled: new Date().toISOString()
         })
       );
-    }
-
-    // Display a test notification immediately if there are identifiers
-    if (identifiers.length > 0) {
-      const testId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "Test Notification",
-          body: `Test notification for ${medication.name} reminders. Your medication reminders have been scheduled.`,
-          data: {
-            medicationId: medication.id,
-            medicationName: medication.name,
-            medicationDosage: medication.dosage,
-            isTest: true,
-          },
-          sound: true,
-        },
-        trigger: null, // null trigger means show immediately
-      });
-      console.log("Scheduled immediate test notification:", testId);
     }
 
     return identifiers.length > 0 ? identifiers : undefined;

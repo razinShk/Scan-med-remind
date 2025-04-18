@@ -391,10 +391,10 @@ function MedicationClock({
               // Use clear color scheme:
               // Green for taken medication
               // Red for upcoming medication
-              // Default color with lower opacity for future medications
+              // Gray for future medications
               const dotColor = allTaken ? '#4CAF50' : // Green for taken
                              anyTimeToTake ? '#FF0000' : // Red for upcoming
-                             medicationColor + '80'; // 50% opacity for future
+                             '#4187f8'; // Gray for future
               
               // Calculate label position to ensure it stays on screen
               const labelPosition = calculateLabelPosition(x, y, radius);
@@ -433,12 +433,8 @@ function MedicationClock({
                     }
                   ]}
                   onPress={() => {
-                    // Toggle selection - if already selected, unselect it; otherwise select this dot
                     const newSelection = isSelected ? null : timeKey;
-                    console.log('Medication dot pressed:', timeKey);
-                    console.log('Is currently selected:', isSelected);
                     setSelectedTimeKey(newSelection);
-                    // Force a re-render
                     setForceUpdate(prev => prev + 1);
                   }}
                   activeOpacity={0.5}
@@ -452,10 +448,8 @@ function MedicationClock({
                         width: anyTimeToTake && !allTaken || isSelected ? 18 : 12,
                         height: anyTimeToTake && !allTaken || isSelected ? 18 : 12,
                         borderRadius: anyTimeToTake && !allTaken || isSelected ? 9 : 6,
-                        // Add thin border to all dots for better visibility
                         borderWidth: isSelected ? 3 : anyTimeToTake && !allTaken ? 2 : 0.5,
                         borderColor: isSelected ? '#FFFFFF' : anyTimeToTake && !allTaken ? 'white' : 'rgba(255, 255, 255, 0.8)',
-                        // Add a shadow when selected or for upcoming doses
                         shadowColor: isSelected ? "#FFFFFF" : anyTimeToTake ? "#FF0000" : "transparent",
                         shadowOffset: { width: 0, height: 0 },
                         shadowOpacity: isSelected ? 0.8 : anyTimeToTake ? 0.6 : 0,
@@ -519,79 +513,6 @@ function MedicationClock({
     </View>
   );
 }
-
-// Add a function to test voice reminder
-const testVoiceReminder = (medication: Medication) => {
-  const speechText = `It's time to take your ${medication.name} medication, ${medication.dosage}`;
-  Speech.speak(speechText, {
-    language: 'en',
-    pitch: 1.0,
-    rate: 0.9,
-  });
-};
-
-// Function to test voice reminder system with a sample medication
-const testVoiceSystem = () => {
-  const sampleMedication = {
-    name: "Test Medication",
-    dosage: "10mg"
-  };
-  
-  const speechText = `It's time to take your ${sampleMedication.name} medication, ${sampleMedication.dosage}`;
-  Speech.speak(speechText, {
-    language: 'en',
-    pitch: 1.0,
-    rate: 0.9,
-  });
-  
-  Alert.alert(
-    "Voice Test",
-    "Testing the voice reminder system. You should hear the voice announcement.",
-    [{ text: "OK" }]
-  );
-};
-
-// Add debug function to test voice reminder system
-const debugNotifications = async () => {
-  try {
-    console.log("Debugging notifications system...");
-    
-    // List all scheduled notifications
-    await listAllScheduledNotifications();
-    
-    // Check if there are medications to reschedule
-    const allMedications = await getMedications();
-    console.log(`Found ${allMedications.length} medications to check`);
-    
-    if (allMedications.length > 0) {
-      // Get the first medication for testing
-      const testMedication = allMedications[0];
-      
-      // Test voice announcement immediately
-      testVoiceReminder(testMedication);
-      
-      // Reschedule notifications for this medication
-      console.log(`Rescheduling notifications for ${testMedication.name}`);
-      await updateMedicationReminders(testMedication);
-      
-      // Show confirmation to the user
-      Alert.alert(
-        "Notifications Fixed",
-        `Medication reminders for ${testMedication.name} have been reset. You should receive a test notification shortly.`,
-        [{ text: "OK" }]
-      );
-    } else {
-      Alert.alert(
-        "No Medications Found",
-        "No medications found to test notifications. Please add a medication first.",
-        [{ text: "OK" }]
-      );
-    }
-  } catch (error) {
-    console.error("Error debugging notifications:", error);
-    Alert.alert("Error", "Failed to debug notification system. See console for details.");
-  }
-};
 
 // Add a component specifically for medication names to fix render issues
 function MedicationLabels({ 
@@ -1010,13 +931,6 @@ export default function HomeScreen() {
                     <View style={styles.cardFooter}>
                       <TouchableOpacity
                         style={styles.footerActionButton}
-                        onPress={() => testVoiceReminder(medication)}
-                      >
-                        <Ionicons name="volume-high-outline" size={20} color="#1976D2" />
-                        <Text style={styles.footerActionText}>Test</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.footerActionButton}
                         onPress={() => handleEditMedication(medication.id)}
                       >
                         <Ionicons name="create-outline" size={20} color="#555" />
@@ -1122,13 +1036,6 @@ export default function HomeScreen() {
                     </View>
                     
                     <View style={styles.cardFooter}>
-                      <TouchableOpacity
-                        style={styles.footerActionButton}
-                        onPress={() => testVoiceReminder(medication)}
-                      >
-                        <Ionicons name="volume-high-outline" size={20} color="#1976D2" />
-                        <Text style={styles.footerActionText}>Test</Text>
-                      </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.footerActionButton}
                         onPress={() => handleEditMedication(medication.id)}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   Dimensions,
   Platform,
   KeyboardAvoidingView,
+  FlatList,
+  Modal,
+  SafeAreaView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,31 +29,11 @@ import { showSuccessToast, showErrorToast } from "../../utils/toast";
 const { width } = Dimensions.get("window");
 
 const FREQUENCIES = [
-  {
-    id: "1",
-    label: "Once daily",
-    icon: "sunny-outline" as const,
-    times: ["09:00"],
-  },
-  {
-    id: "2",
-    label: "Twice daily",
-    icon: "sync-outline" as const,
-    times: ["09:00", "21:00"],
-  },
-  {
-    id: "3",
-    label: "Three times daily",
-    icon: "time-outline" as const,
-    times: ["09:00", "15:00", "21:00"],
-  },
-  {
-    id: "4",
-    label: "Four times daily",
-    icon: "repeat-outline" as const,
-    times: ["09:00", "13:00", "17:00", "21:00"],
-  },
-  { id: "5", label: "As needed", icon: "calendar-outline" as const, times: [] },
+  { id: "1", label: "Once daily", times: ["09:00"] },
+  { id: "2", label: "Twice daily", times: ["09:00", "21:00"] },
+  { id: "3", label: "Thrice daily", times: ["09:00", "15:00", "21:00"] },
+  { id: "4", label: "Four times", times: ["09:00", "13:00", "17:00", "21:00"] },
+  { id: "5", label: "As needed", times: [] },
 ];
 
 const DURATIONS = [
@@ -66,10 +49,10 @@ export default function AddMedicationScreen() {
   const [form, setForm] = useState({
     name: "",
     dosage: "",
-    frequency: "",
-    duration: "",
+    frequency: "Twice daily",
+    duration: "14 days",
     startDate: new Date(),
-    times: ["09:00"],
+    times: ["09:00", "21:00"],
     notes: "",
     reminderEnabled: true,
     refillReminder: false,
@@ -80,9 +63,12 @@ export default function AddMedicationScreen() {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedFrequency, setSelectedFrequency] = useState("");
-  const [selectedDuration, setSelectedDuration] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedTimeIndex, setSelectedTimeIndex] = useState(0);
+  
+  // Frequency and duration wheel modals
+  const [frequencyModalVisible, setFrequencyModalVisible] = useState(false);
+  const [durationModalVisible, setDurationModalVisible] = useState(false);
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
@@ -164,136 +150,155 @@ export default function AddMedicationScreen() {
     }
   };
 
-  const handleFrequencySelect = (freq: string) => {
-    setSelectedFrequency(freq);
-    const selectedFreq = FREQUENCIES.find((f) => f.label === freq);
+  const handleFrequencySelect = (item: any) => {
+    const selectedFreq = FREQUENCIES.find((f) => f.label === item.label);
     setForm((prev) => ({
       ...prev,
-      frequency: freq,
+      frequency: item.label,
       times: selectedFreq?.times || [],
     }));
-    if (errors.frequency) {
-      setErrors((prev) => ({ ...prev, frequency: "" }));
-    }
+    setFrequencyModalVisible(false);
   };
 
-  const handleDurationSelect = (dur: string) => {
-    setSelectedDuration(dur);
-    setForm((prev) => ({ ...prev, duration: dur }));
-    if (errors.duration) {
-      setErrors((prev) => ({ ...prev, duration: "" }));
-    }
+  const handleDurationSelect = (item: any) => {
+    setForm((prev) => ({ ...prev, duration: item.label }));
+    setDurationModalVisible(false);
   };
 
-  const renderFrequencyOptions = () => {
-    return (
-      <View style={styles.optionsGrid}>
-        {FREQUENCIES.map((freq) => (
+  // Initialize form with default values
+  useEffect(() => {
+    // Default to twice daily and 14 days
+    const twiceDailyFreq = FREQUENCIES.find(f => f.label === "Twice daily");
+    if (twiceDailyFreq) {
+      setForm(prev => ({
+        ...prev,
+        frequency: twiceDailyFreq.label,
+        times: twiceDailyFreq.times
+      }));
+    }
+  }, []);
+
+  // Frequency wheel modal
+  const renderFrequencyModal = () => (
+    <Modal
+      visible={frequencyModalVisible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setFrequencyModalVisible(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Frequency</Text>
+            <TouchableOpacity onPress={() => setFrequencyModalVisible(false)}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          
+          <FlatList
+            data={FREQUENCIES}
+            renderItem={({ item }) => (
           <TouchableOpacity
-            key={freq.id}
             style={[
-              styles.optionCard,
-              selectedFrequency === freq.label && styles.selectedOptionCard,
-            ]}
-            onPress={() => {
-              setSelectedFrequency(freq.label);
-              setForm({ ...form, frequency: freq.label });
-            }}
-          >
-            <View
-              style={[
-                styles.optionIcon,
-                selectedFrequency === freq.label && styles.selectedOptionIcon,
-              ]}
-            >
-              <Ionicons
-                name={freq.icon}
-                size={24}
-                color={selectedFrequency === freq.label ? "white" : "#666"}
-              />
-            </View>
+                  styles.modalOption,
+                  form.frequency === item.label && styles.modalOptionSelected
+                ]}
+                onPress={() => handleFrequencySelect(item)}
+              >
             <Text
               style={[
-                styles.optionLabel,
-                selectedFrequency === freq.label && styles.selectedOptionLabel,
+                    styles.modalOptionText,
+                    form.frequency === item.label && styles.modalOptionTextSelected
               ]}
             >
-              {freq.label}
+                  {item.label}
             </Text>
           </TouchableOpacity>
-        ))}
+            )}
+            keyExtractor={(item) => item.id}
+          />
       </View>
-    );
-  };
+      </SafeAreaView>
+    </Modal>
+  );
 
-  const renderDurationOptions = () => {
-    return (
-      <View style={styles.optionsGrid}>
-        {DURATIONS.map((dur) => (
+  // Duration wheel modal
+  const renderDurationModal = () => (
+    <Modal
+      visible={durationModalVisible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setDurationModalVisible(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Duration</Text>
+            <TouchableOpacity onPress={() => setDurationModalVisible(false)}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          
+          <FlatList
+            data={DURATIONS}
+            renderItem={({ item }) => (
           <TouchableOpacity
-            key={dur.id}
             style={[
-              styles.optionCard,
-              selectedDuration === dur.label && styles.selectedOptionCard,
+                  styles.modalOption,
+                  form.duration === item.label && styles.modalOptionSelected
             ]}
-            onPress={() => {
-              setSelectedDuration(dur.label);
-              setForm({ ...form, duration: dur.label });
-            }}
+                onPress={() => handleDurationSelect(item)}
           >
             <Text
               style={[
-                styles.durationNumber,
-                selectedDuration === dur.label && styles.selectedDurationNumber,
-              ]}
-            >
-              {dur.value > 0 ? dur.value : "∞"}
-            </Text>
-            <Text
-              style={[
-                styles.optionLabel,
-                selectedDuration === dur.label && styles.selectedOptionLabel,
-              ]}
-            >
-              {dur.label}
+                    styles.modalOptionText,
+                    form.duration === item.label && styles.modalOptionTextSelected
+                  ]}
+                >
+                  {item.label}
             </Text>
           </TouchableOpacity>
-        ))}
+            )}
+            keyExtractor={(item) => item.id}
+          />
       </View>
-    );
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const updateTime = (time: string, index: number) => {
+    setForm(prev => ({
+      ...prev,
+      times: prev.times.map((t, i) => i === index ? time : t)
+    }));
   };
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={["#1a8e2d", "#146922"]}
-        style={styles.headerGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-      />
-
-      <View style={styles.content}>
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backButton}
           >
-            <Ionicons name="chevron-back" size={28} color="#1a8e2d" />
+          <Ionicons name="chevron-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>New Medication</Text>
         </View>
 
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
         <ScrollView
           style={styles.formContainer}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.formContentContainer}
         >
           {/* Basic Information */}
-          <View style={styles.section}>
-            <View style={styles.inputContainer}>
+          <View style={styles.basicInfoSection}>
               <TextInput
-                style={[styles.mainInput, errors.name && styles.inputError]}
-                placeholder="Medication Name"
+              style={styles.nameInput}
+              placeholder="Medication name"
                 placeholderTextColor="#999"
                 value={form.name}
                 onChangeText={(text) => {
@@ -306,10 +311,9 @@ export default function AddMedicationScreen() {
               {errors.name && (
                 <Text style={styles.errorText}>{errors.name}</Text>
               )}
-            </View>
-            <View style={styles.inputContainer}>
+            
               <TextInput
-                style={[styles.mainInput, errors.dosage && styles.inputError]}
+              style={styles.dosageInput}
                 placeholder="Dosage (e.g., 500mg)"
                 placeholderTextColor="#999"
                 value={form.dosage}
@@ -324,38 +328,51 @@ export default function AddMedicationScreen() {
                 <Text style={styles.errorText}>{errors.dosage}</Text>
               )}
             </View>
+
+          {/* Frequency and Duration */}
+          <View style={styles.scheduleSection}>
+            <View style={styles.frequencyDurationRow}>
+              <View style={styles.scheduleColumn}>
+                <Text style={styles.scheduleLabel}>Every</Text>
+                <TouchableOpacity 
+                  style={styles.scheduleValue}
+                  onPress={() => setFrequencyModalVisible(true)}
+                >
+                  <Text style={styles.scheduleValueText}>{form.frequency}</Text>
+                </TouchableOpacity>
           </View>
 
-          {/* Schedule */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>How often?</Text>
-            {errors.frequency && (
-              <Text style={styles.errorText}>{errors.frequency}</Text>
-            )}
-            {renderFrequencyOptions()}
+              <View style={styles.scheduleColumn}>
+                <Text style={styles.scheduleLabel}>For</Text>
+                <TouchableOpacity 
+                  style={styles.scheduleValue}
+                  onPress={() => setDurationModalVisible(true)}
+                >
+                  <Text style={styles.scheduleValueText}>{form.duration}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
-            <Text style={styles.sectionTitle}>For how long?</Text>
-            {errors.duration && (
-              <Text style={styles.errorText}>{errors.duration}</Text>
-            )}
-            {renderDurationOptions()}
-
+            <View style={styles.dateRow}>
+              <Text style={styles.scheduleLabel}>Starts</Text>
             <TouchableOpacity
-              style={styles.dateButton}
+                style={styles.datePickerButton}
               onPress={() => setShowDatePicker(true)}
             >
-              <View style={styles.dateIconContainer}>
-                <Ionicons name="calendar" size={20} color="#1a8e2d" />
-              </View>
-              <Text style={styles.dateButtonText}>
-                Starts {form.startDate.toLocaleDateString()}
+                <Text style={styles.dateValue}>
+                  {form.startDate.toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                  }).replace(/\//g, '/')}
               </Text>
-              <Ionicons name="chevron-forward" size={20} color="#666" />
+                <Ionicons name="calendar" size={24} color="#666" />
             </TouchableOpacity>
+            </View>
 
             {showDatePicker && (
               Platform.OS === 'ios' ? (
-                <View style={styles.modalPicker}>
+                <View style={styles.pickerContainer}>
                   <View style={styles.pickerHeader}>
                     <TouchableOpacity 
                       onPress={() => setShowDatePicker(false)}
@@ -396,28 +413,27 @@ export default function AddMedicationScreen() {
 
             {form.frequency && form.frequency !== "As needed" && (
               <View style={styles.timesContainer}>
-                <Text style={styles.timesTitle}>Medication Times</Text>
+                <Text style={styles.sectionLabel}>Medication Times</Text>
                 {form.times.map((time, index) => (
+                  <View key={index} style={styles.timeRow}>
+                    <Text style={styles.timeText}>{time}</Text>
                   <TouchableOpacity
-                    key={index}
-                    style={styles.timeButton}
+                      style={styles.timePickerButton}
                     onPress={() => {
+                        setSelectedTimeIndex(index);
                       setShowTimePicker(true);
                     }}
                   >
-                    <View style={styles.timeIconContainer}>
-                      <Ionicons name="time-outline" size={20} color="#1a8e2d" />
-                    </View>
-                    <Text style={styles.timeButtonText}>{time}</Text>
-                    <Ionicons name="chevron-forward" size={20} color="#666" />
+                      <Ionicons name="time-outline" size={24} color="#666" />
                   </TouchableOpacity>
+                  </View>
                 ))}
               </View>
             )}
 
             {showTimePicker && (
               Platform.OS === 'ios' ? (
-                <View style={styles.modalPicker}>
+                <View style={styles.pickerContainer}>
                   <View style={styles.pickerHeader}>
                     <TouchableOpacity 
                       onPress={() => setShowTimePicker(false)}
@@ -434,7 +450,7 @@ export default function AddMedicationScreen() {
                   </View>
                   <DateTimePicker
                     value={(() => {
-                      const [hours, minutes] = form.times[0].split(":").map(Number);
+                      const [hours, minutes] = form.times[selectedTimeIndex].split(":").map(Number);
                       const date = new Date();
                       date.setHours(hours, minutes, 0, 0);
                       return date;
@@ -448,10 +464,7 @@ export default function AddMedicationScreen() {
                           minute: "2-digit",
                           hour12: false,
                         });
-                        setForm((prev) => ({
-                          ...prev,
-                          times: prev.times.map((t, i) => (i === 0 ? newTime : t)),
-                        }));
+                        updateTime(newTime, selectedTimeIndex);
                       }
                     }}
                   />
@@ -459,7 +472,7 @@ export default function AddMedicationScreen() {
               ) : (
                 <DateTimePicker
                   value={(() => {
-                    const [hours, minutes] = form.times[0].split(":").map(Number);
+                    const [hours, minutes] = form.times[selectedTimeIndex].split(":").map(Number);
                     const date = new Date();
                     date.setHours(hours, minutes, 0, 0);
                     return date;
@@ -474,10 +487,7 @@ export default function AddMedicationScreen() {
                         minute: "2-digit",
                         hour12: false,
                       });
-                      setForm((prev) => ({
-                        ...prev,
-                        times: prev.times.map((t, i) => (i === 0 ? newTime : t)),
-                      }));
+                      updateTime(newTime, selectedTimeIndex);
                     }
                   }}
                 />
@@ -485,47 +495,49 @@ export default function AddMedicationScreen() {
             )}
           </View>
 
-          {/* Reminders */}
+          {/* Notes */}
           <View style={styles.section}>
-            <View style={styles.card}>
-              <View style={styles.switchRow}>
-                <View style={styles.switchLabelContainer}>
-                  <View style={styles.iconContainer}>
-                    <Ionicons name="notifications" size={20} color="#1a8e2d" />
+            <TextInput
+              style={styles.notesInput}
+              placeholder="Add notes or special instructions..."
+              placeholderTextColor="#999"
+              value={form.notes}
+              onChangeText={(text) => setForm({ ...form, notes: text })}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
                   </View>
+
+          {/* Reminders - After scroll */}
+          <View style={styles.section}>
+            <View style={styles.settingRow}>
                   <View>
-                    <Text style={styles.switchLabel}>Reminders</Text>
-                    <Text style={styles.switchSubLabel}>
+                <Text style={styles.settingLabel}>Reminders</Text>
+                <Text style={styles.settingSubLabel}>
                       Get notified when it's time to take your medication
                     </Text>
-                  </View>
                 </View>
                 <Switch
                   value={form.reminderEnabled}
                   onValueChange={(value) =>
                     setForm({ ...form, reminderEnabled: value })
                   }
-                  trackColor={{ false: "#ddd", true: "#1a8e2d" }}
+                trackColor={{ false: "#ddd", true: "#5669FF" }}
                   thumbColor="white"
+                ios_backgroundColor="#ddd"
                 />
-              </View>
             </View>
           </View>
 
-          {/* Refill Tracking */}
+          {/* Refill Tracking - After scroll */}
           <View style={styles.section}>
-            <View style={styles.card}>
-              <View style={styles.switchRow}>
-                <View style={styles.switchLabelContainer}>
-                  <View style={styles.iconContainer}>
-                    <Ionicons name="reload" size={20} color="#1a8e2d" />
-                  </View>
+            <View style={styles.settingRow}>
                   <View>
-                    <Text style={styles.switchLabel}>Refill Tracking</Text>
-                    <Text style={styles.switchSubLabel}>
+                <Text style={styles.settingLabel}>Refill Tracking</Text>
+                <Text style={styles.settingSubLabel}>
                       Get notified when you need to refill
                     </Text>
-                  </View>
                 </View>
                 <Switch
                   value={form.refillReminder}
@@ -539,20 +551,23 @@ export default function AddMedicationScreen() {
                       });
                     }
                   }}
-                  trackColor={{ false: "#ddd", true: "#1a8e2d" }}
+                trackColor={{ false: "#ddd", true: "#5669FF" }}
                   thumbColor="white"
+                ios_backgroundColor="#ddd"
                 />
               </View>
+            
               {form.refillReminder && (
                 <View style={styles.refillInputs}>
                   <View style={styles.inputRow}>
-                    <View style={[styles.inputContainer, styles.flex1]}>
+                  <View style={{ flex: 1, paddingHorizontal: 5 }}>
+                    <Text style={styles.inputLabel}>Current Supply</Text>
                       <TextInput
                         style={[
-                          styles.input,
+                        styles.refillInput,
                           errors.currentSupply && styles.inputError,
                         ]}
-                        placeholder="Current Supply"
+                      placeholder="Quantity"
                         placeholderTextColor="#999"
                         value={form.currentSupply}
                         onChangeText={(text) => {
@@ -569,13 +584,14 @@ export default function AddMedicationScreen() {
                         </Text>
                       )}
                     </View>
-                    <View style={[styles.inputContainer, styles.flex1]}>
+                  <View style={{ flex: 1, paddingHorizontal: 5 }}>
+                    <Text style={styles.inputLabel}>Alert at</Text>
                       <TextInput
                         style={[
-                          styles.input,
+                        styles.refillInput,
                           errors.refillAt && styles.inputError,
                         ]}
-                        placeholder="Alert at"
+                      placeholder="Quantity"
                         placeholderTextColor="#999"
                         value={form.refillAt}
                         onChangeText={(text) => {
@@ -593,55 +609,32 @@ export default function AddMedicationScreen() {
                   </View>
                 </View>
               )}
-            </View>
-          </View>
-
-          {/* Notes */}
-          <View style={styles.section}>
-            <View style={styles.textAreaContainer}>
-              <TextInput
-                style={styles.textArea}
-                placeholder="Add notes or special instructions..."
-                placeholderTextColor="#999"
-                value={form.notes}
-                onChangeText={(text) => setForm({ ...form, notes: text })}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            </View>
           </View>
         </ScrollView>
+      </KeyboardAvoidingView>
 
         <View style={styles.footer}>
           <TouchableOpacity
-            style={[
-              styles.saveButton,
-              isSubmitting && styles.saveButtonDisabled,
-            ]}
-            onPress={handleSave}
+          style={styles.cancelButton}
+          onPress={() => router.back()}
             disabled={isSubmitting}
           >
-            <LinearGradient
-              colors={["#1a8e2d", "#146922"]}
-              style={styles.saveButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
-              <Text style={styles.saveButtonText}>
-                {isSubmitting ? "Adding..." : "Add Medication"}
-              </Text>
-            </LinearGradient>
+          <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
+        
           <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => router.back()}
+          style={styles.saveButton}
+          onPress={handleSave}
             disabled={isSubmitting}
           >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+          <Text style={styles.saveButtonText}>
+            {isSubmitting ? "Adding..." : "Save"}
+          </Text>
           </TouchableOpacity>
         </View>
-      </View>
+
+      {renderFrequencyModal()}
+      {renderDurationModal()}
     </View>
   );
 }
@@ -649,321 +642,211 @@ export default function AddMedicationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
-  },
-  headerGradient: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: Platform.OS === "ios" ? 140 : 120,
-  },
-  content: {
-    flex: 1,
-    paddingTop: Platform.OS === "ios" ? 50 : 30,
+    backgroundColor: "#e6f2ff",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 20,
-    zIndex: 1,
+    paddingTop: Platform.OS === "ios" ? 50 : 30,
+    paddingBottom: 15,
+    backgroundColor: "#f0f7ff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#d9e8ff",
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "white",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    padding: 8,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "white",
-    marginLeft: 15,
+    fontSize: 24,
+    fontWeight: "600",
+    color: "#333",
+    marginLeft: 10,
   },
   formContainer: {
     flex: 1,
   },
   formContentContainer: {
     padding: 20,
+    paddingBottom: 40,
+  },
+  basicInfoSection: {
+    marginBottom: 30,
+  },
+  nameInput: {
+    fontSize: 18,
+    color: "#333",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ddd",
+    marginBottom: 20,
+  },
+  dosageInput: {
+    fontSize: 18,
+    color: "#333",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ddd",
   },
   section: {
     marginBottom: 25,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
-    marginBottom: 15,
-    marginTop: 10,
+  scheduleSection: {
+    marginBottom: 30,
   },
-  mainInput: {
-    fontSize: 20,
-    color: "#333",
-    padding: 15,
-  },
-  optionsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginHorizontal: -5,
-  },
-  optionCard: {
-    width: (width - 60) / 2,
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 15,
-    margin: 5,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  selectedOptionCard: {
-    backgroundColor: "#1a8e2d",
-    borderColor: "#1a8e2d",
-  },
-  optionIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  selectedOptionIcon: {
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-  },
-  optionLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    textAlign: "center",
-  },
-  selectedOptionLabel: {
-    color: "white",
-  },
-  durationNumber: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#1a8e2d",
-    marginBottom: 5,
-  },
-  selectedDurationNumber: {
-    color: "white",
-  },
-  inputContainer: {
-    backgroundColor: "white",
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  dateButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 15,
-    marginTop: 15,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  dateIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 10,
-  },
-  dateButtonText: {
-    flex: 1,
-    fontSize: 16,
-    color: "#333",
-  },
-  card: {
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  switchRow: {
+  frequencyDurationRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    marginBottom: 25,
   },
-  switchLabelContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
+  scheduleColumn: {
+    width: '48%',
   },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 15,
-  },
-  switchLabel: {
+  scheduleLabel: {
     fontSize: 16,
+    color: "#666",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  sectionLabel: {
+    fontSize: 16,
+    color: "#666",
+    marginBottom: 15,
+  },
+  scheduleValue: {
+    backgroundColor: "white",
+    borderRadius: 8,
+    padding: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scheduleValueText: {
+    fontSize: 22,
     fontWeight: "600",
     color: "#333",
   },
-  switchSubLabel: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 2,
-  },
-  inputRow: {
+  dateRow: {
     flexDirection: "row",
-    marginTop: 15,
-    gap: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    paddingBottom: 15,
   },
-  flex1: {
-    flex: 1,
-  },
-  input: {
-    padding: 15,
-    fontSize: 16,
-    color: "#333",
-  },
-  textAreaContainer: {
-    backgroundColor: "white",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  textArea: {
-    height: 100,
-    padding: 15,
-    fontSize: 16,
-    color: "#333",
-  },
-  footer: {
-    padding: 20,
-    backgroundColor: "white",
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-  },
-  saveButton: {
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  saveButtonGradient: {
-    paddingVertical: 15,
-    justifyContent: "center",
+  datePickerButton: {
+    flexDirection: "row",
     alignItems: "center",
   },
-  saveButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  cancelButton: {
-    paddingVertical: 15,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "white",
-  },
-  cancelButtonText: {
-    color: "#666",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  inputError: {
-    borderColor: "#FF5252",
-  },
-  errorText: {
-    color: "#FF5252",
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 12,
-  },
-  saveButtonDisabled: {
-    opacity: 0.7,
-  },
-  refillInputs: {
-    marginTop: 15,
+  dateValue: {
+    fontSize: 18,
+    color: "#333",
+    marginRight: 10,
   },
   timesContainer: {
     marginTop: 20,
   },
-  timesTitle: {
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  timeText: {
+    fontSize: 22,
+    color: "#333",
+  },
+  timePickerButton: {
+    padding: 5,
+  },
+  notesInput: {
+    height: 100,
+    padding: 15,
+    fontSize: 16,
+    color: "#333",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "white",
+    textAlignVertical: "top",
+  },
+  settingRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 15,
+    backgroundColor: "white",
+    borderRadius: 8,
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  settingLabel: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
-    marginBottom: 10,
   },
-  timeButton: {
+  settingSubLabel: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 5,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 5,
+  },
+  inputRow: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
+    marginTop: 10,
+  },
+  refillInput: {
     padding: 15,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  timeIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 10,
-  },
-  timeButtonText: {
-    flex: 1,
     fontSize: 16,
     color: "#333",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "white",
   },
-  modalPicker: {
+  refillInputs: {
+    marginTop: 10,
+  },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#d9e8ff",
+    backgroundColor: "#f0f7ff",
+  },
+  cancelButton: {
+    flex: 1,
+    padding: 15,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cancelButtonText: {
+    fontSize: 18,
+    color: "#333",
+  },
+  saveButton: {
+    flex: 1,
+    padding: 15,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  saveButtonText: {
+    fontSize: 18,
+    color: "#5669FF",
+    fontWeight: "600",
+  },
+  pickerContainer: {
     backgroundColor: 'white',
     position: 'absolute',
     bottom: 0,
@@ -977,7 +860,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
@@ -989,8 +872,58 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   pickerDoneText: {
-    color: '#1a8e2d',
+    color: '#5669FF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    paddingBottom: 20,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  modalOption: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalOptionSelected: {
+    backgroundColor: '#f0f4ff',
+  },
+  modalOptionText: {
+    fontSize: 18,
+    color: '#333',
+  },
+  modalOptionTextSelected: {
+    color: '#5669FF',
+    fontWeight: '600',
+  },
+  inputError: {
+    borderColor: "#FF5252",
+  },
+  errorText: {
+    color: "#FF5252",
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 5,
   },
 });
