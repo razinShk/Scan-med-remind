@@ -27,8 +27,10 @@ import {
   removeNurseConnection,
   getNurseConnectionMedications
 } from '../services/SupabaseService';
-import { syncSharedMedications } from '../services/NurseConnectionService';
+import { syncSharedMedications, loadSharedMedications, scheduleSharedMedicationReminders } from '../services/NurseConnectionService';
 import { useFocusEffect } from '@react-navigation/native';
+import type { SharedMedication } from '../services/NurseConnectionService';
+import { scheduleMedicationReminder } from '../../utils/notifications';
 
 // Get the Medication type from local storage (we need to import the interface only)
 interface Medication {
@@ -84,6 +86,9 @@ interface PendingRequest {
     name: string;
     email: string;
   }[];
+  nurse_connection_medications?: {
+    medication_id: string;
+  }[];
 }
 
 export default function NurseScreen() {
@@ -105,25 +110,13 @@ export default function NurseScreen() {
   const [medicationSelectorVisible, setMedicationSelectorVisible] = useState(false);
   
   // Tabs
-  const [activeTab, setActiveTab] = useState('send'); // 'send', 'received', 'active'
+  const [activeTab, setActiveTab] = useState('send'); // 'send', 'received', 'shared'
+  const [sharedMedications, setSharedMedications] = useState<SharedMedication[]>([]);
 
   // Initial data load
   useEffect(() => {
     loadData();
   }, []);
-  
-  // Set up a periodic refresh for the data
-  useEffect(() => {
-    if (!user) return;
-    
-    // Refresh every 15 seconds while the component is mounted
-    const intervalId = setInterval(() => {
-      console.log('Auto-refreshing nurse connection data');
-      loadData(true); // Pass true to indicate this is a silent refresh
-    }, 15000);
-    
-    return () => clearInterval(intervalId);
-  }, [user]);
   
   // Refresh when the screen comes into focus
   useFocusEffect(
@@ -178,6 +171,11 @@ export default function NurseScreen() {
           console.log('Received connections:', receivedConnections);
           setNurseConnections(receivedConnections as unknown as NurseConnection[]);
         }
+        
+        // Load shared medications for display in "Shared" tab
+        const sharedMeds = await loadSharedMedications(user.uid);
+        console.log('Shared medications:', sharedMeds);
+        setSharedMedications(sharedMeds);
       }
     } catch (error: unknown) {
       const errorMessage = 
@@ -378,15 +376,153 @@ export default function NurseScreen() {
     }
     
     // Profile might be an array or a direct object
-    const profileData = Array.isArray(profile) && profile.length > 0 
-      ? profile[0] 
-      : profile;
+    let profileData;
     
+    if (Array.isArray(profile)) {
+      profileData = profile.length > 0 ? profile[0] : null;
+    } else if (typeof profile === 'object') {
+      profileData = profile;
+    } else {
+      console.warn("Unexpected profile data format:", profile);
+      profileData = null;
+    }
+    
+    if (!profileData) {
+      return { name: 'Unknown', username: 'unknown', initial: '?' };
+    }
+    
+    // Extract data with fallbacks
     const name = profileData.name || profileData.username || 'Unknown';
     const username = profileData.username || 'unknown';
     const initial = name.charAt(0).toUpperCase();
     
+    console.log("Extracted profile data:", { name, username, initial });
+    
     return { name, username, initial };
+  };
+
+  // Helper function to fetch medication names by IDs
+  const getMedicationNames = (medicationIds: string[]) => {
+    if (!medicationIds || medicationIds.length === 0) return 'No medications';
+    
+    const medNames = medicationIds.map(id => {
+      const med = medications.find(m => m.id === id);
+      return med ? med.name : 'Unknown';
+    }).filter(name => name !== 'Unknown');
+    
+    if (medNames.length === 0) return 'No medications';
+    if (medNames.length === 1) return medNames[0];
+    if (medNames.length === 2) return `${medNames[0]} and ${medNames[1]}`;
+    return `${medNames.length} medications`;
+  };
+
+  const toggleMedicationReminder = async (medication: SharedMedication) => {
+    try {
+      console.log('Toggling reminder for medication:', medication);
+      
+      // Toggle the reminderEnabled property
+      const updatedMedication = {
+        ...medication,
+        reminderEnabled: !medication.reminderEnabled
+      };
+      
+      // Get all medications
+      const allMeds = await AsyncStorage.getItem('@medications');
+      let medications = allMeds ? JSON.parse(allMeds) : [];
+      
+      console.log('Found medications in storage:', medications.length);
+      
+      // Find and update the specific medication
+      const index = medications.findIndex((m: any) => 
+        m.id === medication.id && 
+        (m.isShared === true || m.isShared === undefined)
+      );
+      
+      console.log('Found medication at index:', index);
+      
+      if (index !== -1) {
+        medications[index] = updatedMedication;
+        
+        // Save back to storage
+        await AsyncStorage.setItem('@medications', JSON.stringify(medications));
+        console.log('Saved updated medications to storage');
+        
+        // Update the state immediately for UI response
+        const updatedSharedMeds = [...sharedMedications];
+        const sharedIndex = updatedSharedMeds.findIndex(m => m.id === medication.id);
+        if (sharedIndex !== -1) {
+          updatedSharedMeds[sharedIndex] = updatedMedication;
+          setSharedMedications(updatedSharedMeds);
+          console.log('Updated shared medications state');
+        }
+        
+        // Handle reminders based on new setting
+        if (updatedMedication.reminderEnabled) {
+          console.log('Enabling reminder for medication');
+          await scheduleMedicationReminder({
+            ...updatedMedication,
+            name: `${updatedMedication.name} (${updatedMedication.sharedByName})`
+          });
+        } else {
+          console.log('Reminder disabled - would cancel here if needed');
+          // You could add code to cancel notifications here if you implement that feature
+        }
+        
+        Alert.alert(
+          'Reminder Updated',
+          `Reminders ${updatedMedication.reminderEnabled ? 'enabled' : 'disabled'} for ${medication.name}`
+        );
+      } else {
+        console.log('Could not find medication in storage, adding it');
+        
+        // Add the medication if it doesn't exist
+        medications.push(updatedMedication);
+        await AsyncStorage.setItem('@medications', JSON.stringify(medications));
+        
+        // Update shared medications state
+        setSharedMedications([...sharedMedications, updatedMedication]);
+        
+        if (updatedMedication.reminderEnabled) {
+          await scheduleMedicationReminder({
+            ...updatedMedication,
+            name: `${updatedMedication.name} (${updatedMedication.sharedByName})`
+          });
+        }
+        
+        Alert.alert(
+          'Medication Added',
+          `${medication.name} has been added to your medications with reminders ${updatedMedication.reminderEnabled ? 'enabled' : 'disabled'}`
+        );
+      }
+    } catch (error) {
+      console.error('Error toggling reminder:', error);
+      Alert.alert('Error', 'Failed to update reminder settings. Please try again.');
+    }
+  };
+
+  const forceRefreshSharedMedications = async () => {
+    if (!user) return;
+    
+    setRefreshing(true);
+    try {
+      // Clear and reload shared medications
+      console.log('Force refreshing shared medications');
+      
+      // Sync medications
+      await syncSharedMedications(user.uid);
+      
+      // Re-load medications after sync
+      const sharedMeds = await loadSharedMedications(user.uid);
+      console.log('Reloaded shared medications:', sharedMeds);
+      setSharedMedications(sharedMeds);
+      
+      Alert.alert('Refresh Complete', 'Shared medications have been refreshed');
+    } catch (error) {
+      console.error('Error refreshing shared medications:', error);
+      Alert.alert('Refresh Failed', 'Failed to refresh shared medications. Please try again.');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const renderTabContent = () => {
@@ -489,7 +625,10 @@ export default function NurseScreen() {
                 <Text style={styles.sectionTitle}>Pending Requests</Text>
                 <TouchableOpacity 
                   style={styles.refreshButton}
-                  onPress={() => loadData()}
+                  onPress={() => {
+                    console.log('Manual refresh of pending requests triggered');
+                    loadData();
+                  }}
                   disabled={isLoading || refreshing}
                 >
                   {refreshing ? (
@@ -511,6 +650,7 @@ export default function NurseScreen() {
               ) : (
                 pendingRequests.map(request => {
                   const profile = getProfileData(request);
+                  const medicationIds = request.nurse_connection_medications?.map(m => m.medication_id) || [];
                   
                   return (
                     <View key={request.id} style={styles.requestCard}>
@@ -522,6 +662,10 @@ export default function NurseScreen() {
                         <Text style={styles.connectionDetail}>@{profile.username}</Text>
                         <Text style={styles.connectionDetail}>
                           Sent on {new Date(request.created_at).toLocaleDateString()}
+                        </Text>
+                        <Text style={[styles.connectionDetail, styles.medicationInfoText]}>
+                          <Ionicons name="medkit-outline" size={14} color="#0097A7" /> {" "}
+                          {getMedicationNames(medicationIds)}
                         </Text>
                       </View>
                       <View style={styles.requestActions}>
@@ -577,6 +721,71 @@ export default function NurseScreen() {
                     </View>
                   );
                 })
+              )}
+            </View>
+          </View>
+        );
+        
+      case 'shared':
+        return (
+          <View style={styles.tabContent}>
+            <View style={styles.connectionsContainer}>
+              <View style={styles.sectionHeaderWithAction}>
+                <Text style={styles.sectionTitle}>Shared Medications</Text>
+                <TouchableOpacity 
+                  style={styles.refreshButton}
+                  onPress={() => {
+                    console.log('Manual refresh of shared medications triggered');
+                    forceRefreshSharedMedications();
+                  }}
+                  disabled={refreshing}
+                >
+                  {refreshing ? (
+                    <ActivityIndicator size="small" color="#0097A7" />
+                  ) : (
+                    <View style={styles.refreshButtonContent}>
+                      <Ionicons name="refresh-outline" size={16} color="#0097A7" />
+                      <Text style={styles.refreshButtonText}>Refresh</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+              
+              {sharedMedications.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="medkit-outline" size={50} color="#ccc" />
+                  <Text style={styles.emptyStateText}>No shared medications</Text>
+                </View>
+              ) : (
+                sharedMedications.map(medication => (
+                  <View key={medication.id} style={styles.medicationCard}>
+                    <View style={[styles.medicationColorIndicator, { backgroundColor: medication.color || '#4CAF50' }]} />
+                    <View style={styles.medicationInfo}>
+                      <Text style={styles.medicationName}>
+                        {medication.name} 
+                        <Text style={styles.medicationSharedBy}> (from {medication.sharedByName || 'Unknown'})</Text>
+                      </Text>
+                      <Text style={styles.medicationDetail}>{medication.dosage || 'No dosage info'}</Text>
+                      <Text style={styles.medicationDetail}>
+                        {medication.times && medication.times.length > 0 
+                          ? medication.times.join(', ') 
+                          : 'No schedule info'}
+                      </Text>
+                      <Text style={styles.medicationDetail}>
+                        <Text style={styles.medicationId}>ID: {medication.id.substring(0, 8)}...</Text>
+                      </Text>
+                    </View>
+                    <View style={styles.reminderToggle}>
+                      <Text style={styles.reminderText}>Reminders</Text>
+                      <Switch
+                        value={medication.reminderEnabled}
+                        onValueChange={() => toggleMedicationReminder(medication)}
+                        trackColor={{ false: '#d1d1d1', true: '#81c784' }}
+                        thumbColor={medication.reminderEnabled ? '#4CAF50' : '#f4f3f4'}
+                      />
+                    </View>
+                  </View>
+                ))
               )}
             </View>
           </View>
@@ -644,6 +853,21 @@ export default function NurseScreen() {
                 {pendingRequests.length > 0 && (
                   <View style={styles.badgeContainer}>
                     <Text style={styles.badgeText}>{pendingRequests.length}</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'shared' && styles.activeTab]}
+              onPress={() => setActiveTab('shared')}
+            >
+              <View style={styles.tabBadgeContainer}>
+                <Text style={[styles.tabText, activeTab === 'shared' && styles.activeTabText]}>
+                  Shared
+                </Text>
+                {sharedMedications.length > 0 && (
+                  <View style={styles.badgeContainer}>
+                    <Text style={styles.badgeText}>{sharedMedications.length}</Text>
                   </View>
                 )}
               </View>
@@ -1051,5 +1275,47 @@ const styles = StyleSheet.create({
     color: '#0097A7',
     fontSize: 16,
     fontWeight: '600',
+  },
+  medicationInfoText: {
+    color: '#0097A7',
+    fontStyle: 'italic',
+  },
+  medicationCard: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  medicationColorIndicator: {
+    width: 8,
+    height: '100%',
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  medicationSharedBy: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  reminderToggle: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reminderText: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  medicationId: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
   },
 }); 

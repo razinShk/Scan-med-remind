@@ -34,18 +34,28 @@ export const loadSharedMedications = async (userId: string): Promise<SharedMedic
     // Get all active connections where the user is acting as a nurse
     const { data: nurseConnections } = await getActiveNurseConnections(userId, true);
     
+    console.log('Nurse connections for shared medications:', nurseConnections);
+    
     if (!nurseConnections || nurseConnections.length === 0) {
+      console.log('No nurse connections found for shared medications');
       return [];
     }
     
     // For each connection, get the shared medications
     for (const connection of nurseConnections) {
+      console.log('Processing connection for medications:', connection.id);
       const { data: medications } = await getNurseConnectionMedications(userId, connection.id);
+      
+      console.log('Raw medication data for connection:', medications);
       
       if (medications && medications.length > 0) {
         // Add each medication to the shared medications list with sender info
         medications.forEach(item => {
+          console.log('Processing medication item:', item);
+          
+          // Handle different possible data structures
           if (item.medications) {
+            // Standard structure where medications is an object
             sharedMedications.push({
               ...item.medications,
               sharedBy: connection.sender_id,
@@ -53,11 +63,34 @@ export const loadSharedMedications = async (userId: string): Promise<SharedMedic
               connectionId: connection.id,
               isShared: true
             });
+          } else if (item.medication_id) {
+            // Alternative structure where we just have the medication ID
+            // Try to fetch the medication from AsyncStorage
+            // This is a fallback approach
+            AsyncStorage.getItem('@medications').then(medicationsData => {
+              if (medicationsData) {
+                const allMeds = JSON.parse(medicationsData);
+                const foundMed = allMeds.find((m: any) => m.id === item.medication_id);
+                
+                if (foundMed) {
+                  sharedMedications.push({
+                    ...foundMed,
+                    sharedBy: connection.sender_id,
+                    sharedByName: connection.profiles.name || connection.profiles.username,
+                    connectionId: connection.id,
+                    isShared: true
+                  });
+                }
+              }
+            }).catch(err => console.error('Error fetching local medications:', err));
           }
         });
+      } else {
+        console.log('No medications found for connection:', connection.id);
       }
     }
     
+    console.log('Final shared medications:', sharedMedications);
     return sharedMedications;
   } catch (error) {
     console.error('Error loading shared medications:', error);
@@ -92,54 +125,97 @@ export const scheduleSharedMedicationReminders = async (userId: string): Promise
 // Sync local and shared medications
 export const syncSharedMedications = async (userId: string): Promise<void> => {
   try {
-    // Load all shared medications from nurse connections
-    const sharedMedications = await loadSharedMedications(userId);
+    console.log('Starting medication sync for user:', userId);
+    
+    // Get active connections where user is a nurse
+    const { data: nurseConnections } = await getActiveNurseConnections(userId, true);
+    console.log('Active nurse connections for sync:', nurseConnections);
+    
+    if (!nurseConnections || nurseConnections.length === 0) {
+      console.log('No active nurse connections found for sync');
+      return;
+    }
     
     // Load all local medications
     const localMedications = await getMedications();
+    console.log('Local medications count:', localMedications.length);
     
     // Filter out existing shared medications from local storage
     const nonSharedLocalMedications = localMedications.filter(
       med => !med.hasOwnProperty('isShared') || !med.isShared
     );
     
-    // Check for any shared medications that need to be added/updated
-    for (const sharedMed of sharedMedications) {
-      const existingMedIndex = localMedications.findIndex(
-        med => med.id === sharedMed.id && med.isShared
-      );
+    // Track medications that should be shared
+    const sharedMedicationIds: string[] = [];
+    const sharedMedications: SharedMedication[] = [];
+    
+    // For each connection, get and process the shared medications
+    for (const connection of nurseConnections) {
+      console.log('Processing connection for sync:', connection.id);
+      const { data: medications } = await getNurseConnectionMedications(userId, connection.id);
       
-      if (existingMedIndex === -1) {
-        // This is a new shared medication, add it
-        await addMedication(sharedMed);
-        await scheduleMedicationReminder(sharedMed);
-      } else {
-        // This is an existing shared medication, update it if needed
-        const existingMed = localMedications[existingMedIndex];
+      if (medications && medications.length > 0) {
+        console.log(`Found ${medications.length} medications to sync for connection ${connection.id}`);
         
-        // Check if any properties have changed
-        if (JSON.stringify(existingMed) !== JSON.stringify(sharedMed)) {
-          await updateMedication(sharedMed);
-          await scheduleMedicationReminder(sharedMed);
+        // Process each medication ID
+        for (const item of medications) {
+          if (!item.medication_id) continue;
+          
+          sharedMedicationIds.push(item.medication_id);
+          
+          // Try to find this medication in the user's own medications
+          const existingMed = localMedications.find(m => m.id === item.medication_id);
+          
+          if (existingMed) {
+            // Use the user's own medication data but mark it as shared
+            const sharedMed: SharedMedication = {
+              ...existingMed,
+              sharedBy: connection.sender_id,
+              sharedByName: connection.profiles.name || connection.profiles.username,
+              connectionId: connection.id,
+              isShared: true
+            };
+            
+            sharedMedications.push(sharedMed);
+            
+            // Also update medication reminders
+            await scheduleMedicationReminder({
+              ...sharedMed,
+              name: `${sharedMed.name} (${sharedMed.sharedByName})` // Add sharer's name
+            });
+          } else {
+            // This is a medication we don't have local data for
+            console.log(`Missing local data for medication ${item.medication_id}`);
+            // You could implement a network request to fetch medication details here
+            // if you have an endpoint that can provide medication details by ID
+          }
         }
       }
     }
     
-    // Remove any shared medications that are no longer shared
-    const sharedMedIds = sharedMedications.map(med => med.id);
+    console.log(`Found ${sharedMedications.length} shared medications to save locally`);
+    
+    // If we have any shared medications, add them to local storage
+    if (sharedMedications.length > 0) {
+      // Combine non-shared medications with shared ones
+      const updatedMedications = [...nonSharedLocalMedications, ...sharedMedications];
+      
+      // Save the updated array
+      await AsyncStorage.setItem('@medications', JSON.stringify(updatedMedications));
+      console.log('Saved updated medications to local storage');
+    }
+    
+    // Remove shared medications that are no longer shared
     const outdatedSharedMeds = localMedications.filter(
-      med => med.isShared && !sharedMedIds.includes(med.id)
+      med => med.isShared && !sharedMedicationIds.includes(med.id)
     );
     
     if (outdatedSharedMeds.length > 0) {
-      // Create a new medications array without the outdated shared meds
-      const updatedMedications = [...nonSharedLocalMedications, ...sharedMedications];
-      
-      // Save the updated medications array
-      await AsyncStorage.setItem('@medications', JSON.stringify(updatedMedications));
+      console.log(`Removing ${outdatedSharedMeds.length} outdated shared medications`);
+      // This is handled by the code above that only keeps current shared medications
     }
     
-    console.log(`Synced shared medications: ${sharedMedications.length} active, ${outdatedSharedMeds.length} removed`);
+    console.log(`Completed medication sync: ${sharedMedications.length} active, ${outdatedSharedMeds.length} removed`);
   } catch (error) {
     console.error('Error syncing shared medications:', error);
   }

@@ -237,61 +237,45 @@ export const getPendingNurseRequests = async (userId: string) => {
   console.log('Fetching pending requests for user:', userId);
   
   try {
-    // First check if the user exists and has correct permissions
-    const { data: userProfile, error: userError } = await supabase
-      .from('profiles')
-      .select('id, username')
-      .eq('id', userId)
-      .single();
-    
-    console.log('User profile check:', { userProfile, userError });
-    
-    if (userError) {
-      console.error('Error fetching user profile:', userError);
-      return { data: [], error: 'User profile not found' };
-    }
-    
-    // Now try to fetch pending requests
+    // Use a simpler query without relying on the join
     const { data, error } = await supabase
       .from('nurse_connections')
-      .select(`
-        id,
-        sender_id,
-        receiver_id,
-        status,
-        created_at,
-        profiles:sender_id(
-          username,
-          name,
-          email
-        )
-      `)
+      .select('*')
       .eq('receiver_id', userId)
       .eq('status', 'pending');
     
     console.log('Pending requests raw result:', { data, error });
-    console.log('Current user ID:', userId);
-    console.log('Is user receiver in any connection:', 
-      data?.some(req => req.receiver_id === userId));
     
-    // Check the specific tables directly to see if data exists
-    const { count, error: countError } = await supabase
-      .from('nurse_connections')
-      .select('id', { count: 'exact' })
-      .eq('receiver_id', userId);
+    if (!data || data.length === 0) {
+      return { data: [], error };
+    }
     
-    console.log('Total connections count for this receiver:', { count, countError });
+    // Manually fetch sender profiles and medications
+    const enhancedRequests = await Promise.all(
+      data.map(async (request) => {
+        // Get sender profile separately
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('username, name, email')
+          .eq('id', request.sender_id)
+          .single();
+          
+        // Get medications for this connection
+        const { data: medicationsData } = await supabase
+          .from('nurse_connection_medications')
+          .select('medication_id')
+          .eq('connection_id', request.id);
+        
+        return {
+          ...request,
+          profiles: profileData || { username: 'unknown', name: 'Unknown User', email: '' },
+          nurse_connection_medications: medicationsData || []
+        };
+      })
+    );
     
-    // Check if any pending connections exist
-    const { count: pendingCount, error: pendingCountError } = await supabase
-      .from('nurse_connections')
-      .select('id', { count: 'exact' })
-      .eq('receiver_id', userId)
-      .eq('status', 'pending');
-    
-    console.log('Pending connections count:', { pendingCount, pendingCountError });
-    
-    return { data, error };
+    console.log('Enhanced requests with profiles and medications:', enhancedRequests);
+    return { data: enhancedRequests, error: null };
   } catch (err) {
     console.error('Unexpected error in getPendingNurseRequests:', err);
     return { data: [], error: err };
@@ -299,28 +283,55 @@ export const getPendingNurseRequests = async (userId: string) => {
 };
 
 export const getActiveNurseConnections = async (userId: string, asNurse = false) => {
-  const { data, error } = await supabase
-    .from('nurse_connections')
-    .select(`
-      id,
-      sender_id,
-      receiver_id,
-      status,
-      created_at,
-      profiles:profiles!${asNurse ? 'sender_id' : 'receiver_id'}(
-        username,
-        name,
-        email
-      ),
-      nurse_connection_medications (
-        medication_id
-      )
-    `)
-    .eq(asNurse ? 'receiver_id' : 'sender_id', userId)
-    .eq('status', 'accepted');
-
-  console.log('Active connections query result:', { asNurse, userId, data, error });
-  return { data, error };
+  console.log(`Getting active nurse connections for user ${userId} as ${asNurse ? 'nurse' : 'patient'}`);
+  
+  try {
+    // First get the connections without joins to avoid potential issues
+    const { data: connections, error: connectionsError } = await supabase
+      .from('nurse_connections')
+      .select('id, sender_id, receiver_id, status, created_at')
+      .eq(asNurse ? 'receiver_id' : 'sender_id', userId)
+      .eq('status', 'accepted');
+    
+    console.log('Raw connections:', connections, connectionsError);
+    
+    if (connectionsError || !connections || connections.length === 0) {
+      console.log('No active connections found or error occurred');
+      return { data: [], error: connectionsError };
+    }
+    
+    // Now get the profiles data for each connection
+    const enhancedConnections = await Promise.all(
+      connections.map(async (connection) => {
+        const otherUserId = asNurse ? connection.sender_id : connection.receiver_id;
+        
+        // Get profile data
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('username, name, email')
+          .eq('id', otherUserId)
+          .single();
+        
+        // Get medications for this connection
+        const { data: medicationsData } = await supabase
+          .from('nurse_connection_medications')
+          .select('medication_id')
+          .eq('connection_id', connection.id);
+        
+        return {
+          ...connection,
+          profiles: profileData || { username: 'unknown', name: 'Unknown User', email: '' },
+          nurse_connection_medications: medicationsData || []
+        };
+      })
+    );
+    
+    console.log('Enhanced connections with profiles and medications:', enhancedConnections);
+    return { data: enhancedConnections, error: null };
+  } catch (error) {
+    console.error('Error in getActiveNurseConnections:', error);
+    return { data: [], error };
+  }
 };
 
 export const respondToNurseRequest = async (
@@ -359,13 +370,28 @@ export const getNurseConnectionMedications = async (
   userId: string, 
   connectionId: string
 ) => {
-  const { data, error } = await supabase
-    .from('nurse_connection_medications')
-    .select(`
-      medication_id,
-      medications:medication_id (*)
-    `)
-    .eq('connection_id', connectionId);
-
-  return { data, error };
+  console.log(`Fetching medications for connection ${connectionId} and user ${userId}`);
+  
+  try {
+    // First get the medication_ids from the connection
+    const { data: connectionMeds, error: connectionError } = await supabase
+      .from('nurse_connection_medications')
+      .select('medication_id')
+      .eq('connection_id', connectionId);
+    
+    console.log('Connection medications result:', connectionMeds, connectionError);
+    
+    if (connectionError || !connectionMeds || connectionMeds.length === 0) {
+      console.log('No medications found for this connection or error occurred');
+      return { data: [], error: connectionError };
+    }
+    
+    // We need to return the raw medication IDs even if we can't fetch the full medication details
+    // This allows the client to potentially look them up locally
+    return { data: connectionMeds, error: null };
+    
+  } catch (error) {
+    console.error('Error in getNurseConnectionMedications:', error);
+    return { data: [], error };
+  }
 }; 

@@ -869,7 +869,7 @@ export default function HomeScreen() {
           ) : (
             scannedMedications.flatMap((medication) => 
               medication.times.map((time, index) => {
-                const doseId = `scanned-${medication.id}-${time}`;
+                const doseId = `scanned-${medication.id}-${time}-${index}`;
                 const taken = doseHistory.some(
                   (dose) => dose.medicationId === medication.id && 
                           new Date(dose.timestamp).getHours() === parseInt(time.split(':')[0]) &&
@@ -977,7 +977,7 @@ export default function HomeScreen() {
           ) : (
             todaysMedications.flatMap((medication) => 
               medication.times.map((time, index) => {
-                const doseId = `${medication.id}-${time}`;
+                const doseId = `regular-${medication.id}-${time}-${index}`;
                 const taken = doseHistory.some(
                   (dose) => dose.medicationId === medication.id && 
                           new Date(dose.timestamp).getHours() === parseInt(time.split(':')[0]) &&

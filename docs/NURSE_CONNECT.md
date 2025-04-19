@@ -14,6 +14,7 @@ NURSE Connect allows any user of the app to act as a "nurse" for another user. T
 2. **Receiving Connection Requests**
    - Users receive notifications when someone sends them a nurse connection request
    - They can view all pending requests in the "Received" tab
+   - Each request shows the medications being shared
    - Each request can be accepted or rejected
 
 3. **Active Connections**
@@ -24,6 +25,11 @@ NURSE Connect allows any user of the app to act as a "nurse" for another user. T
 4. **Managing Connections**
    - Both parties can remove connections at any time
    - Senders can update which medications are shared
+
+5. **Shared Medications Tab**
+   - Dedicated tab for viewing all medications shared with you as a nurse
+   - Enable/disable reminders for individual shared medications
+   - Clear overview of medication schedules and dosages
 
 ## Technical Implementation
 
@@ -47,6 +53,7 @@ The feature uses two main tables in Supabase:
    - Includes tabs for:
      - Send: Creating new nurse connections
      - Received: Managing received connection requests and active connections
+     - Shared: Viewing and managing shared medications
 
 2. **NurseConnectionService (app/services/NurseConnectionService.ts)**
    - Handles loading shared medications
@@ -56,19 +63,20 @@ The feature uses two main tables in Supabase:
 3. **SupabaseService (app/services/SupabaseService.ts)**
    - Provides database functions for:
      - Sending connection requests
-     - Getting pending requests
+     - Getting pending requests with medication information
      - Responding to requests
      - Managing connections and medications
 
 ### Data Flow
 
 1. User sends a connection request with selected medications
-2. Request appears in recipient's pending requests
+2. Request appears in recipient's pending requests tab with medication names
 3. When recipient accepts:
    - Connection status updates to "accepted"
    - `syncSharedMedications` function loads the shared medications
    - Reminders are scheduled for the shared medications
 4. Medications are marked as "shared" to distinguish them
+5. Shared medications appear in the "Shared" tab with reminder controls
 
 ## User Experience
 
@@ -80,13 +88,19 @@ The feature uses two main tables in Supabase:
 
 ### Accepting/Rejecting Requests
 1. Navigate to Nurse Connect > Received tab
-2. View pending requests
+2. View pending requests with medication information
 3. Accept or reject each request
 
 ### Viewing Shared Medications
-1. Shared medications appear in the standard medication list
-2. They are labeled with the sender's name
-3. Regular reminders are received for these medications
+1. Navigate to Nurse Connect > Shared tab 
+2. View all medications shared with you
+3. Toggle reminder settings for each medication
+4. Tap refresh to update the list
+
+### Managing Active Connections
+1. Patients can see all their active nurse connections in the "Send" tab
+2. Nurses can see all their active patient connections in the "Received" tab
+3. Both can remove connections with the X button
 
 ## Security & Privacy
 
@@ -97,9 +111,10 @@ The feature uses two main tables in Supabase:
 - Users maintain control over their shared data
 - Connections can be terminated by either party
 
-## Limitations
+## Known Issues and Future Improvements
 
-- Medications are read-only for the nurse
-- No ability to modify medication settings as a nurse
-- No separate nurse-specific notification settings
-- Real-time updates require manual refresh 
+- Real-time synchronization of shared medications
+- Additional filtering and sorting options for the shared medications list
+- Ability for nurses to mark medications as taken for tracking adherence
+- Analytics dashboard for nurse oversight
+- Direct messaging between patients and nurses 
