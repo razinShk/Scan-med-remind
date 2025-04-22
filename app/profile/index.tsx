@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../services/AuthContext';
 import { getMedications, Medication } from '../../utils/storage';
 import { ROUTES } from '../services/NavigationHelper';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Meal timing type definition
 interface MealTiming {
@@ -35,6 +36,21 @@ const defaultMealTimings: MealTiming[] = [
   { id: '3', name: 'Dinner', time: '19:00', enabled: true },
 ];
 
+interface MealTimes {
+  breakfast: string;
+  lunch: string;
+  eveningSnacks: string;
+  dinner: string;
+}
+
+// First, add a getSubscriptionPlanName function to display plan type
+const getSubscriptionPlanName = (user: any) => {
+  if (!user?.isSubscribed) return "Free Plan";
+  // In a real app, this would come from user data or subscription context
+  // For now we're just showing a placeholder
+  return "Premium Plan (Monthly)"; // Or "Premium Plan (Yearly)"
+};
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, isSubscribed, signOut, updateProfile } = useAuth();
@@ -45,6 +61,20 @@ export default function ProfileScreen() {
   const [editingName, setEditingName] = useState(false);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [savingName, setSavingName] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [showMealTimePicker, setShowMealTimePicker] = useState(false);
+  const [currentMeal, setCurrentMeal] = useState<keyof MealTimes>('breakfast');
+  const [mealTimes, setMealTimes] = useState<MealTimes>({
+    breakfast: '09:00',
+    lunch: '13:00',
+    eveningSnacks: '17:00',
+    dinner: '20:00',
+  });
+  
+  // Add section order management
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   
   // Load user data
   useEffect(() => {
@@ -136,7 +166,89 @@ export default function ProfileScreen() {
       ]
     );
   };
-  
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const settings = await AsyncStorage.getItem('@userSettings');
+      if (settings) {
+        const parsedSettings = JSON.parse(settings);
+        setNotificationsEnabled(parsedSettings.notifications ?? true);
+        setSoundEnabled(parsedSettings.sound ?? true);
+        setVibrationEnabled(parsedSettings.vibration ?? true);
+      }
+
+      // Log to verify loading
+      console.log('Loading meal times from storage...');
+      const savedMealTimes = await AsyncStorage.getItem('@mealTimes');
+      if (savedMealTimes) {
+        console.log('Found saved meal times:', savedMealTimes);
+        setMealTimes(JSON.parse(savedMealTimes));
+      } else {
+        console.log('No saved meal times found, using defaults');
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  };
+
+  const handleMealTimeChange = async (event: any, selectedTime: Date | undefined) => {
+    setShowMealTimePicker(Platform.OS === 'ios');
+    if (selectedTime) {
+      const hours = selectedTime.getHours().toString().padStart(2, '0');
+      const minutes = selectedTime.getMinutes().toString().padStart(2, '0');
+      const timeString = `${hours}:${minutes}`;
+      
+      const newMealTimes = {
+        ...mealTimes,
+        [currentMeal]: timeString
+      };
+      
+      setMealTimes(newMealTimes);
+      
+      Alert.alert('Time Updated', `${currentMeal} time updated to ${formatTime(timeString)}. Press the Save button to save changes.`);
+    }
+  };
+
+  const showTimePicker = (meal: keyof MealTimes) => {
+    setCurrentMeal(meal);
+    setShowMealTimePicker(true);
+  };
+
+  const saveSettings = async () => {
+    try {
+      const settings = {
+        notifications: notificationsEnabled,
+        sound: soundEnabled,
+        vibration: vibrationEnabled,
+      };
+      
+      console.log('Saving user settings:', JSON.stringify(settings));
+      await AsyncStorage.setItem('@userSettings', JSON.stringify(settings));
+      
+      console.log('Saving meal times:', JSON.stringify(mealTimes));
+      await AsyncStorage.setItem('@mealTimes', JSON.stringify(mealTimes));
+      
+      Alert.alert('Success', 'All settings saved successfully. Your meal times will now be used for medication scheduling.');
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      Alert.alert('Error', 'Failed to save settings. Please try again.');
+    }
+  };
+
+  // Update subscription handling
+  const handleUpgradeClick = () => {
+    router.push('/subscription');
+  };
+
+  // Handle nurse connect navigation
+  const handleNurseConnect = () => {
+    router.push('/nurse');
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -289,7 +401,7 @@ export default function ProfileScreen() {
                   </View>
                   <View style={styles.subscriptionInfo}>
                     <Text style={styles.subscriptionTitle}>
-                      {isSubscribed ? "Premium Active" : "Free Plan"}
+                      {isSubscribed ? getSubscriptionPlanName(user) : "Free Plan"}
                     </Text>
                     <Text style={styles.subscriptionDesc}>
                       {isSubscribed 
@@ -299,34 +411,164 @@ export default function ProfileScreen() {
                   </View>
                 </View>
                 
-                {!isSubscribed && (
+                {!isSubscribed ? (
                   <TouchableOpacity 
                     style={styles.upgradeButton}
-                    onPress={() => router.push('/subscription/index' as any)}
+                    onPress={handleUpgradeClick}
                   >
                     <Text style={styles.upgradeButtonText}>Upgrade Now</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity 
+                    style={[styles.upgradeButton, { backgroundColor: '#E0F2F1' }]}
+                    onPress={handleUpgradeClick}
+                  >
+                    <Text style={[styles.upgradeButtonText, { color: '#00796B' }]}>Manage Subscription</Text>
                   </TouchableOpacity>
                 )}
               </View>
             </View>
             
             <View style={styles.sectionContainer}>
-              <Text style={styles.sectionTitle}>Meal Timings</Text>
-              <View style={styles.mealTimingsContainer}>
-                {mealTimings.map((meal) => (
-                  <View key={meal.id} style={styles.mealItem}>
-                    <View style={styles.mealInfo}>
-                      <Text style={styles.mealName}>{meal.name}</Text>
-                      <Text style={styles.mealTime}>{formatTime(meal.time)}</Text>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>Meal Settings</Text>
+                <TouchableOpacity 
+                  style={styles.saveSettingsButton}
+                  onPress={saveSettings}
+                >
+                  <Text style={styles.saveSettingsButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.mealTimingsCard}>
+                <View style={styles.mealSettingItem}>
+                  <View style={styles.mealInfoContainer}>
+                    <Ionicons name="sunny-outline" size={22} color="#FF9800" style={styles.mealIcon} />
+                    <View style={styles.mealTextContainer}>
+                      <Text style={styles.mealName}>Breakfast</Text>
+                      <Text style={styles.mealTimeInfo}>{formatTime(mealTimes.breakfast)}</Text>
                     </View>
-                    <Switch
-                      value={meal.enabled}
-                      onValueChange={() => toggleMealTiming(meal.id)}
-                      trackColor={{ false: '#ddd', true: '#bbdefb' }}
-                      thumbColor={meal.enabled ? '#1976D2' : '#f4f3f4'}
-                    />
                   </View>
-                ))}
+                  <TouchableOpacity 
+                    style={styles.timeSelector}
+                    onPress={() => showTimePicker('breakfast')}
+                  >
+                    <Ionicons name="time-outline" size={20} color="#1976D2" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.mealSettingItem}>
+                  <View style={styles.mealInfoContainer}>
+                    <Ionicons name="restaurant-outline" size={22} color="#4CAF50" style={styles.mealIcon} />
+                    <View style={styles.mealTextContainer}>
+                      <Text style={styles.mealName}>Lunch</Text>
+                      <Text style={styles.mealTimeInfo}>{formatTime(mealTimes.lunch)}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.timeSelector}
+                    onPress={() => showTimePicker('lunch')}
+                  >
+                    <Ionicons name="time-outline" size={20} color="#1976D2" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.mealSettingItem}>
+                  <View style={styles.mealInfoContainer}>
+                    <Ionicons name="cafe-outline" size={22} color="#795548" style={styles.mealIcon} />
+                    <View style={styles.mealTextContainer}>
+                      <Text style={styles.mealName}>Evening Snacks</Text>
+                      <Text style={styles.mealTimeInfo}>{formatTime(mealTimes.eveningSnacks)}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.timeSelector}
+                    onPress={() => showTimePicker('eveningSnacks')}
+                  >
+                    <Ionicons name="time-outline" size={20} color="#1976D2" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.mealSettingItem}>
+                  <View style={styles.mealInfoContainer}>
+                    <Ionicons name="moon-outline" size={22} color="#673AB7" style={styles.mealIcon} />
+                    <View style={styles.mealTextContainer}>
+                      <Text style={styles.mealName}>Dinner</Text>
+                      <Text style={styles.mealTimeInfo}>{formatTime(mealTimes.dinner)}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.timeSelector}
+                    onPress={() => showTimePicker('dinner')}
+                  >
+                    <Ionicons name="time-outline" size={20} color="#1976D2" />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.mealSettingNote}>
+                  These meal times will be used for scheduling your medication reminders.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.sectionContainer}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>Notification Settings</Text>
+                <TouchableOpacity 
+                  style={styles.toggleButton}
+                  onPress={() => setShowNotificationSettings(!showNotificationSettings)}
+                >
+                  <Ionicons 
+                    name={showNotificationSettings ? "chevron-up" : "chevron-down"} 
+                    size={22} 
+                    color="#1976D2" 
+                  />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.notificationCard}>
+                <View style={styles.notificationMain}>
+                  <View style={styles.notificationIconContainer}>
+                    <Ionicons name="notifications" size={24} color="#1976D2" />
+                  </View>
+                  <View style={styles.notificationTextContainer}>
+                    <Text style={styles.notificationTitle}>Medication Reminders</Text>
+                    <Text style={styles.notificationSubtitle}>
+                      Receive alerts for your medications
+                    </Text>
+                  </View>
+                  <Switch
+                    value={notificationsEnabled}
+                    onValueChange={setNotificationsEnabled}
+                    trackColor={{ false: '#d1d1d1', true: '#81c784' }}
+                    thumbColor={notificationsEnabled ? '#4CAF50' : '#f4f3f4'}
+                  />
+                </View>
+                
+                {showNotificationSettings && (
+                  <View style={styles.notificationDetails}>
+                    <View style={styles.notificationOption}>
+                      <Text style={styles.notificationOptionText}>Sound</Text>
+                      <Switch
+                        value={soundEnabled}
+                        onValueChange={setSoundEnabled}
+                        trackColor={{ false: '#d1d1d1', true: '#81c784' }}
+                        thumbColor={soundEnabled ? '#4CAF50' : '#f4f3f4'}
+                        disabled={!notificationsEnabled}
+                      />
+                    </View>
+                    
+                    <View style={styles.notificationOption}>
+                      <Text style={styles.notificationOptionText}>Vibration</Text>
+                      <Switch
+                        value={vibrationEnabled}
+                        onValueChange={setVibrationEnabled}
+                        trackColor={{ false: '#d1d1d1', true: '#81c784' }}
+                        thumbColor={vibrationEnabled ? '#4CAF50' : '#f4f3f4'}
+                        disabled={!notificationsEnabled}
+                      />
+                    </View>
+                  </View>
+                )}
               </View>
             </View>
             
@@ -335,7 +577,7 @@ export default function ProfileScreen() {
               <View style={styles.accountOptions}>
                 <TouchableOpacity 
                   style={styles.accountOption}
-                  onPress={() => router.push('/nurse/index' as any)}
+                  onPress={handleNurseConnect}
                 >
                   <Ionicons name="people-outline" size={22} color="#1976D2" style={styles.accountOptionIcon} />
                   <Text style={styles.accountOptionText}>Nurse Connect</Text>
@@ -345,7 +587,7 @@ export default function ProfileScreen() {
                 {isSubscribed && (
                   <TouchableOpacity 
                     style={styles.accountOption}
-                    onPress={() => router.push('/subscription/index' as any)}
+                    onPress={handleUpgradeClick}
                   >
                     <Ionicons name="card-outline" size={22} color="#1976D2" style={styles.accountOptionIcon} />
                     <Text style={styles.accountOptionText}>Manage Subscription</Text>
@@ -366,6 +608,22 @@ export default function ProfileScreen() {
           </>
         )}
       </ScrollView>
+
+      {showMealTimePicker && (
+        <DateTimePicker
+          value={(() => {
+            const [hours, minutes] = mealTimes[currentMeal].split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours, 10));
+            date.setMinutes(parseInt(minutes, 10));
+            return date;
+          })()}
+          mode="time"
+          is24Hour={true}
+          display="default"
+          onChange={handleMealTimeChange}
+        />
+      )}
     </View>
   );
 }
@@ -540,7 +798,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  mealTimingsContainer: {
+  mealTimingsCard: {
     backgroundColor: 'white',
     borderRadius: 16,
     overflow: 'hidden',
@@ -549,8 +807,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 2,
+    padding: 5,
   },
-  mealItem: {
+  mealSettingItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -558,18 +817,38 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  mealInfo: {
+  mealInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  mealIcon: {
+    marginRight: 15,
+  },
+  mealTextContainer: {
     flex: 1,
   },
   mealName: {
     fontSize: 16,
     fontWeight: '500',
     color: '#333',
-    marginBottom: 3,
   },
-  mealTime: {
+  mealTimeInfo: {
     fontSize: 14,
     color: '#666',
+    marginTop: 3,
+  },
+  timeSelector: {
+    backgroundColor: '#e3f2fd',
+    padding: 10,
+    borderRadius: 8,
+  },
+  mealSettingNote: {
+    fontSize: 14,
+    color: '#757575',
+    fontStyle: 'italic',
+    padding: 15,
+    textAlign: 'center',
   },
   accountOptions: {
     backgroundColor: 'white',
@@ -671,5 +950,86 @@ const styles = StyleSheet.create({
   menuSubtitle: {
     fontSize: 14,
     color: '#666',
+  },
+  settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  saveSettingsButton: {
+    backgroundColor: '#0097A7',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  saveSettingsButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  notificationCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    marginVertical: 10,
+    padding: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  notificationMain: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  notificationIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#E3F2FD",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  notificationTextContainer: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+  },
+  notificationSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 2,
+  },
+  notificationDetails: {
+    marginTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
+    paddingTop: 15,
+  },
+  notificationOption: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  notificationOptionText: {
+    fontSize: 15,
+    color: "#444",
+  },
+  toggleButton: {
+    padding: 8,
   },
 }); 

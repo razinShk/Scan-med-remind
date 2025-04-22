@@ -287,6 +287,63 @@ export default function EditMedicationScreen() {
     }
   };
 
+  const handleUpdateMedication = async () => {
+    if (!form.name || !form.dosage || !form.frequency || !form.startDate || !form.duration) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      // Use the custom times set by the user instead of regenerating them
+      const updatedMedication = {
+        ...form,
+        name: form.name,
+        dosage: form.dosage,
+        // Use form.times directly instead of calling parseFrequencyToTimes
+        times: form.times,
+        startDate: form.startDate.toISOString(),
+        duration: form.duration,
+        color: form.color,
+        reminderEnabled: form.reminderEnabled,
+        currentSupply: parseInt(form.currentSupply) || 0,
+        totalSupply: parseInt(form.totalSupply) || 0,
+        refillAt: parseInt(form.refillAt) || 20,
+        refillReminder: form.refillReminder,
+        notes: form.notes,
+      };
+
+      // Update in storage
+      const existingMeds = await getMedications();
+      const updatedMeds = existingMeds.map(med => 
+        med.id === form.id ? updatedMedication : med
+      );
+      await updateMedication(updatedMedication);
+
+      // Update reminders
+      if (form.reminderEnabled) {
+        await updateMedicationReminders(updatedMedication);
+      }
+
+      Alert.alert(
+        'Success',
+        'Medication updated successfully',
+        [
+          {
+            text: 'OK',
+            onPress: () => router.back(),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error updating medication:', error);
+      Alert.alert('Error', 'Failed to update medication');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -590,7 +647,7 @@ export default function EditMedicationScreen() {
 
         <TouchableOpacity
           style={styles.saveButton}
-          onPress={handleSave}
+          onPress={handleUpdateMedication}
           disabled={isSubmitting}
         >
           <Text style={styles.saveButtonText}>

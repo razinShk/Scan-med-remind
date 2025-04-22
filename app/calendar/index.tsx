@@ -12,6 +12,7 @@ import {
   PanResponder,
   Modal,
   Pressable,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,16 +21,19 @@ import {
   getMedications,
   getDoseHistory,
   recordDose,
+  deleteMedication,
   Medication,
   DoseHistory,
 } from "../../utils/storage";
 import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Import pill images
 const PillImages = {
   bluePill: require('../../assets/purple pill.png'),
   purplePill: require('../../assets/pill with blue bead.png'),
-  blueBead: require('../../assets/purple pill.png'),
+  blueBead: require('../../assets/blue pill with bead.png'),
+  injection: require('../../assets/injection.png'),
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -91,6 +95,64 @@ export default function CalendarScreen() {
       loadData();
     }, [loadData])
   );
+
+  // Go back to home page
+  const goToHome = () => {
+    router.back();
+  };
+
+  // Handle medication edit
+  const handleEditMedication = (medication: Medication) => {
+    // Navigate to edit medication screen with the medication data
+    router.push({
+      pathname: "/medications/edit",
+      params: { 
+        id: medication.id
+      }
+    } as any);
+  };
+
+  // Handle medication delete with confirmation
+  const handleDeleteMedication = async (medicationId: string) => {
+    try {
+      Alert.alert(
+        "Delete Medication",
+        "Are you sure you want to delete this medication?",
+        [
+          { 
+            text: "Cancel", 
+            style: "cancel" 
+          },
+          { 
+            text: "Delete", 
+            style: "destructive",
+            onPress: async () => {
+              try {
+                // Use the deleteMedication function from storage utils
+                await deleteMedication(medicationId);
+                // Refresh the medications list
+                await loadData();
+              } catch (error) {
+                console.error("Error deleting medication:", error);
+                Alert.alert("Error", "Could not delete medication. Please try again.");
+              }
+            } 
+          }
+        ]
+      );
+    } catch (error) {
+      console.error("Error showing delete confirmation:", error);
+    }
+  };
+
+  // Handle marking medication as taken directly from card
+  const handleTakeMedication = async (medication: Medication, time: string) => {
+    const doseTime = new Date(selectedDate);
+    doseTime.setHours(parseInt(time.split(':')[0]), parseInt(time.split(':')[1]), 0, 0);
+    
+    await recordDose(medication.id, true, doseTime.toISOString());
+    await loadData();
+  };
 
   // Handle opening the medication detail modal
   const openMedicationDetail = (medication: any, time: string, taken: boolean) => {
@@ -243,19 +305,53 @@ export default function CalendarScreen() {
     return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
   };
 
+  // Helper function to truncate medication name to first 3 words
+  const truncateMedicationName = (name: string): string => {
+    if (!name) return "";
+    const words = name.split(' ');
+    return words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
+  };
+
   // Helper function to select a pill image based on medication name/color
-  const getPillImage = (medication: Medication) => {
-    const name = medication.name.toLowerCase();
-    const color = medication.color?.toLowerCase() || '';
+  const getPillImage = (medication: Medication, index: number = 0) => {
+    // Select image based on index to ensure different images for different cards
+    // This will cycle through the available images
+    const imageKeys = Object.keys(PillImages) as Array<keyof typeof PillImages>;
+    const selectedKey = imageKeys[index % imageKeys.length];
+    return PillImages[selectedKey];
+  };
+
+  // Helper to determine medication frequency based on times array
+  const getMedicationFrequency = (medication: Medication): string => {
+    if (!medication.times || !Array.isArray(medication.times)) return "";
     
-    // Choose pill image based on medication properties
-    if (name.includes('capsule') || name.includes('cap.')) {
-      return PillImages.blueBead;
-    } else if (color.includes('#ff') || color.includes('purple') || color.includes('#9') || color.includes('#a') || color.includes('#b')) {
-      return PillImages.purplePill;
-    } else {
-      return PillImages.bluePill;
+    const count = medication.times.length;
+    if (count === 1) return "Once daily";
+    if (count === 2) return "Twice daily";
+    if (count === 3) return "Three times daily";
+    if (count === 4) return "Four times daily";
+    return `${count} times daily`;
+  };
+
+  // Format date as "DD MMM YYYY"
+  const formatDate = (date: Date): string => {
+    const day = date.getDate();
+    const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getMonth()];
+    const year = date.getFullYear();
+    return `${day} ${month} ${year}`;
+  };
+
+  // Helper to get duration text
+  const getDurationText = (medication: Medication): string => {
+    if (!medication.duration) return "";
+    if (medication.duration.toLowerCase() === "ongoing") return "Ongoing";
+    
+    const daysMatch = medication.duration.match(/(\d+)/);
+    if (daysMatch && daysMatch[1]) {
+      const days = parseInt(daysMatch[1]);
+      return `${days} days`;
     }
+    return medication.duration;
   };
 
   // Helper to get medication description (placeholder for now)
@@ -339,14 +435,14 @@ export default function CalendarScreen() {
     }
 
     // Flatten to show each medication time as a separate item
-    return activeMedications.flatMap((medication) => {
+    return activeMedications.flatMap((medication, medIndex) => {
       // Check if medication times exists and is an array
       if (!medication || !medication.times || !Array.isArray(medication.times)) {
         console.log(`Medication ${medication?.name} has invalid times:`, medication?.times);
         return []; // Skip this medication
       }
       
-      return medication.times.map((time, index) => {
+      return medication.times.map((time, timeIndex) => {
         const doseId = `${medication.id}-${time}`;
         
         // Check if this specific time slot has been taken
@@ -356,8 +452,14 @@ export default function CalendarScreen() {
                     new Date(dose.timestamp).getMinutes() === parseInt(time.split(':')[1])
         );
 
-        // Get appropriate pill image
-        const pillImage = getPillImage(medication);
+        // Get appropriate pill image - use the index to select different images
+        const uniqueIndex = medIndex * 10 + timeIndex; // Ensure a unique index for each medication/time combination
+        const pillImage = getPillImage(medication, uniqueIndex);
+        const frequency = getMedicationFrequency(medication);
+        const startDate = new Date(medication.startDate);
+        const formattedDate = formatDate(startDate);
+        const duration = getDurationText(medication);
+        const truncatedName = truncateMedicationName(medication.name);
 
         return (
           <TouchableOpacity 
@@ -365,42 +467,81 @@ export default function CalendarScreen() {
             style={styles.medicationCard}
             onPress={() => openMedicationDetail(medication, time, taken)}
           >
-            <View style={styles.medicationContent}>
-            <View style={styles.medicationInfo}>
-              <Text style={styles.medicationName}>{medication.name}</Text>
-                <Text style={styles.medicationTime}>
-                  {formatTime12Hour(time)} · {medication.dosage}
+            <LinearGradient
+              colors={["#7B68EE", "#5D3FD3"]}
+              style={[styles.cardGradient, {borderRadius: 20}]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+            />
+
+            <View style={styles.medicationHeader}>
+              <View style={styles.medicationTitleContainer}>
+                <Ionicons name="medical-outline" size={24} color="white" style={styles.infoIcon} />
+                <Text style={styles.medicationName} numberOfLines={1}>
+                  {truncatedName}
               </Text>
               </View>
               
-              {taken ? (
-                <View style={styles.takenCheckmark}>
-                  <Ionicons name="checkmark" size={16} color="#fff" />
+              <View style={styles.timeContainer}>
+                <Ionicons name="time-outline" size={22} color="white" style={styles.infoIcon} />
+                <Text style={styles.medicationTime}>{formatTime12Hour(time)}</Text>
                 </View>
-              ) : null}
             </View>
             
-            <View style={styles.pillContainer}>
-              <Image 
-                source={pillImage}
-                style={styles.pillImage}
-                resizeMode="contain"
-              />
+            <View style={styles.medicationRow}>
+              <Ionicons name="repeat-outline" size={20} color="white" style={styles.infoIcon} />
+              <Text style={styles.infoText}>{frequency}</Text>
             </View>
             
-            <View style={styles.medicationFooter}>
-              <Text style={styles.lastWeekText}>Last week</Text>
-              <View style={styles.historyDots}>
-                {Array(7).fill(0).map((_, i) => (
-                  <View 
-                    key={i} 
-                    style={[
-                      styles.historyDot,
-                      Math.random() > 0.3 ? styles.takenHistoryDot : null
-                    ]} 
-                  />
-                ))}
+            <View style={styles.medicationRow}>
+              <Ionicons name="flask-outline" size={20} color="white" style={styles.infoIcon} />
+              <Text style={styles.infoText}>{medication.dosage}</Text>
               </View>
+            
+            <View style={styles.medicationRow}>
+              <Ionicons name="hourglass-outline" size={20} color="white" style={styles.infoIcon} />
+              <Text style={styles.infoText}>{duration}</Text>
+            </View>
+
+            {taken ? (
+              <View style={styles.takenButton}>
+                <Ionicons name="checkmark" size={16} color="white" />
+                <Text style={styles.takenText}>Taken</Text>
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={styles.notTakenButton}
+                onPress={() => handleTakeMedication(medication, time)}
+              >
+                <Text style={styles.notTakenText}>Take</Text>
+              </TouchableOpacity>
+            )}
+            
+            <View style={styles.cardFooter}>
+              <TouchableOpacity style={styles.footerButton}>
+                <Ionicons name="notifications-outline" size={22} color="white" />
+                <Text style={styles.footerButtonText}>Reminder</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.buttonDivider} />
+              
+              <TouchableOpacity 
+                style={styles.footerButton}
+                onPress={() => handleEditMedication(medication)}
+              >
+                <Ionicons name="create-outline" size={22} color="white" />
+                <Text style={styles.footerButtonText}>Edit</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.buttonDivider} />
+              
+              <TouchableOpacity 
+                style={styles.footerButton}
+                onPress={() => handleDeleteMedication(medication.id)}
+              >
+                <Ionicons name="trash-outline" size={22} color="white" />
+                <Text style={styles.footerButtonText}>Delete</Text>
+              </TouchableOpacity>
             </View>
               </TouchableOpacity>
         );
@@ -411,7 +552,9 @@ export default function CalendarScreen() {
   const renderMedicationDetailModal = () => {
     if (!selectedMedication) return null;
     
-    const pillImage = getPillImage(selectedMedication);
+    // Generate a consistent index based on medication ID
+    const medicationIndex = selectedMedication.id.charCodeAt(0) % 4; // Use the first character of ID to determine image
+    const pillImage = getPillImage(selectedMedication, medicationIndex);
     const description = getMedicationDescription(selectedMedication);
 
   return (
@@ -431,7 +574,7 @@ export default function CalendarScreen() {
 
           <View style={styles.modalHeader}>
           <TouchableOpacity
-            style={styles.backButton}
+            style={styles.modalBackButton}
               onPress={() => setDetailModalVisible(false)}
             >
               <Ionicons name="chevron-back" size={24} color="white" />
@@ -503,17 +646,24 @@ export default function CalendarScreen() {
       />
 
       <View style={styles.content}>
-        {/* Month header with navigation buttons and pan responder for swiping */}
+        {/* Header with back button and month navigation */}
         <View style={styles.headerContainer}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={goToHome}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          
           <View 
-            style={styles.header}
+            style={styles.monthNavContainer}
             {...panResponder.panHandlers}
           >
             <TouchableOpacity 
               style={styles.monthNavButton}
               onPress={() => handleMonthChange(-1)}
             >
-              <Ionicons name="chevron-back" size={22} color="white" />
+              <Ionicons name="chevron-back" size={20} color="white" />
             </TouchableOpacity>
             
             <Text style={styles.monthText}>
@@ -524,7 +674,7 @@ export default function CalendarScreen() {
               style={styles.monthNavButton}
               onPress={() => handleMonthChange(1)}
             >
-              <Ionicons name="chevron-forward" size={22} color="white" />
+              <Ionicons name="chevron-forward" size={20} color="white" />
             </TouchableOpacity>
           </View>
         </View>
@@ -563,26 +713,40 @@ const styles = StyleSheet.create({
   headerContainer: {
     paddingHorizontal: 15,
     marginBottom: 15,
-  },
-  header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    width: '100%',
+    justifyContent: 'space-between',
   },
-  monthNavButton: {
+  backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    marginRight: 10,
+  },
+  monthNavContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  monthNavButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    marginHorizontal: 8,
   },
   monthText: {
     fontSize: 16,
     fontWeight: "700",
     color: "white",
     letterSpacing: 1,
+    marginHorizontal: 5,
   },
   weekCalendarContainer: {
     paddingHorizontal: 15,
@@ -634,22 +798,12 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   medicationCard: {
-    backgroundColor: "white",
     borderRadius: 20,
-    marginBottom: 15,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
+    marginBottom: 16,
+    padding: 16,
+    position: "relative",
     minHeight: 100,
-  },
-  medicationContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 20,
+    overflow: 'hidden',
   },
   medicationInfo: {
     flex: 1,
@@ -657,66 +811,84 @@ const styles = StyleSheet.create({
   medicationName: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#333",
-    marginBottom: 8,
+    color: "white",
   },
   medicationTime: {
-    fontSize: 15,
-    color: "#666",
+    fontSize: 16,
+    color: "white",
+    fontWeight: "500",
   },
-  takenCheckmark: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#4CAF50",
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 10,
-    bottom: 25,
-  },
-  pillContainer: {
-    position: "absolute",
-    right: 20,
-    bottom: 30,
-  },
-  pillImage: {
-    width: 100,
-    height: 160,
-  },
-  medicationFooter: {
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
-    padding: 16,
-  },
-  lastWeekText: {
-    fontSize: 12,
-    color: "#999",
-    marginBottom: 8,
-  },
-  historyDots: {
+  medicationRow: {
     flexDirection: "row",
     alignItems: "center",
+    marginVertical: 2,
   },
-  historyDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#ddd",
-    marginRight: 4,
-  },
-  takenHistoryDot: {
-    backgroundColor: "#4CAF50",
-  },
-  emptyState: {
-    padding: 30,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  emptyStateText: {
+  infoText: {
     color: "white",
     fontSize: 16,
-    marginTop: 20,
-    textAlign: "center",
+  },
+  medicationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  takenButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginLeft: 'auto',
+    alignSelf: 'flex-start',
+    marginTop: -30,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  takenText: {
+    color: 'white',
+    fontWeight: '500',
+    marginLeft: 5,
+    fontSize: 16,
+  },
+  notTakenButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginLeft: 'auto',
+    alignSelf: 'flex-start',
+    marginTop: -30,
+  },
+  notTakenText: {
+    color: 'white',
+    fontWeight: '500',
+    fontSize: 16,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+    marginTop: 8,
+    paddingTop: 6,
+  },
+  footerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  footerButtonText: {
+    color: 'white',
+    fontWeight: '500',
+    marginLeft: 5,
+  },
+  buttonDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
   modalContainer: {
     flex: 1,
@@ -739,7 +911,7 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 50 : 30,
     paddingBottom: 10,
   },
-  backButton: {
+  modalBackButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -835,5 +1007,39 @@ const styles = StyleSheet.create({
     color: 'white',
     marginLeft: 8,
     fontWeight: '500',
+  },
+  cardGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 20,
+  },
+  medicationTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  infoIcon: {
+    marginRight: 10,
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    // paddingHorizontal: 10,
+    // paddingVertical: 4,
+    borderRadius: 12,
+  },
+  emptyState: {
+    padding: 30,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  emptyStateText: {
+    color: "white",
+    fontSize: 16,
+    marginTop: 20,
+    textAlign: "center",
   },
 });

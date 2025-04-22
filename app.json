@@ -21,7 +21,8 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "versionCode": 2
     },
     "web": {
       "bundler": "metro",
@@ -36,7 +37,8 @@
           "image": "./assets/NoBgLogoMed.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#4CAF50"
+          "backgroundColor": "#4CAF50",
+          "kotlinVersion": "1.9.25"
         }
       ],
       [
@@ -44,7 +46,9 @@
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-build-properties"
     ],
     "experiments": {
       "typedRoutes": true

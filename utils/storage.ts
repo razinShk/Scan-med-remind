@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const MEDICATIONS_KEY = "@medications";
 const DOSE_HISTORY_KEY = "@dose_history";
+const USER_CREDITS_KEY = "@user_credits";
 
 export interface Medication {
   id: string;
@@ -25,6 +26,12 @@ export interface DoseHistory {
   medicationId: string;
   timestamp: string;
   taken: boolean;
+}
+
+// User credits interface for storing scan prescription credits
+export interface UserCredits {
+  availableCredits: number;
+  lastResetDate: string; // ISO date string
 }
 
 export async function getMedications(): Promise<Medication[]> {
@@ -141,5 +148,56 @@ export async function clearAllData(): Promise<void> {
   } catch (error) {
     console.error("Error clearing data:", error);
     throw error;
+  }
+}
+
+// Get the user's available scan prescription credits
+export async function getUserCredits(): Promise<UserCredits> {
+  try {
+    const today = new Date().toDateString();
+    const data = await AsyncStorage.getItem(USER_CREDITS_KEY);
+    const userCredits = data ? JSON.parse(data) : null;
+
+    // If no credits data or last reset date is not today, reset credits
+    if (!userCredits || new Date(userCredits.lastResetDate).toDateString() !== today) {
+      // Create new credits for today
+      const newCredits: UserCredits = {
+        availableCredits: 5, // Default 5 credits per day
+        lastResetDate: new Date().toISOString()
+      };
+      
+      // Save to storage
+      await AsyncStorage.setItem(USER_CREDITS_KEY, JSON.stringify(newCredits));
+      return newCredits;
+    }
+
+    return userCredits;
+  } catch (error) {
+    console.error("Error getting user credits:", error);
+    // Return default credits if error
+    return {
+      availableCredits: 5,
+      lastResetDate: new Date().toISOString()
+    };
+  }
+}
+
+// Use a credit for scan prescription feature
+export async function useCredit(): Promise<boolean> {
+  try {
+    const userCredits = await getUserCredits();
+    
+    // Check if user has credits available
+    if (userCredits.availableCredits <= 0) {
+      return false;
+    }
+    
+    // Update credits
+    userCredits.availableCredits -= 1;
+    await AsyncStorage.setItem(USER_CREDITS_KEY, JSON.stringify(userCredits));
+    return true;
+  } catch (error) {
+    console.error("Error using credit:", error);
+    return false;
   }
 }

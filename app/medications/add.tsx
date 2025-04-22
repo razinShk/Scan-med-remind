@@ -13,13 +13,14 @@ import {
   FlatList,
   Modal,
   SafeAreaView,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import { addMedication } from "../../utils/storage";
+import { addMedication, getMedications } from "../../utils/storage";
 import {
   scheduleMedicationReminder,
   scheduleRefillReminder,
@@ -107,17 +108,16 @@ export default function AddMedicationScreen() {
   };
 
   const handleSave = async () => {
-    try {
-      if (!validateForm()) {
-        showErrorToast("Please fill in all required fields correctly");
-        return;
-      }
+    if (!validateForm()) {
+      showErrorToast("Please fill in all required fields correctly");
+      return;
+    }
 
-      if (isSubmitting) return;
+    try {
       setIsSubmitting(true);
 
-      // Generate a random color
-      const colors = ["#4CAF50", "#2196F3", "#FF9800", "#E91E63", "#9C27B0"];
+      // Generate a random color - change default colors to blues
+      const colors = ["#1976D2", "#2196F3", "#03A9F4", "#0288D1", "#0277BD"];
       const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
       const medicationData = {
@@ -275,15 +275,17 @@ export default function AddMedicationScreen() {
 
   return (
     <View style={styles.container}>
-        <View style={styles.header}>
+      <LinearGradient colors={["#1976D2", "#0D47A1"]} style={styles.header}>
+        <View style={styles.headerContent}>
           <TouchableOpacity
-            onPress={() => router.back()}
             style={styles.backButton}
+            onPress={() => router.back()}
           >
-          <Ionicons name="chevron-back" size={24} color="#333" />
+            <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Medication</Text>
+          <Text style={styles.headerTitle}>Add Medication</Text>
         </View>
+      </LinearGradient>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -495,6 +497,85 @@ export default function AddMedicationScreen() {
             )}
           </View>
 
+          {/* Move Refill Tracking here before notes */}
+          <View style={styles.section}>
+            <View style={styles.settingRow}>
+              <View>
+                <Text style={styles.settingLabel}>Refill Tracking</Text>
+                <Text style={styles.settingSubLabel}>
+                  Get notified when you need to refill
+                </Text>
+              </View>
+              <Switch
+                value={form.refillReminder}
+                onValueChange={(value) => {
+                  setForm({ ...form, refillReminder: value });
+                  if (!value) {
+                    setErrors({
+                      ...errors,
+                      currentSupply: "",
+                      refillAt: "",
+                    });
+                  }
+                }}
+                trackColor={{ false: "#ddd", true: "#1976D2" }}
+                thumbColor="white"
+                ios_backgroundColor="#ddd"
+              />
+            </View>
+            
+            {form.refillReminder && (
+              <View style={styles.refillInputs}>
+                <View style={styles.inputRow}>
+                  <View style={{ flex: 1, paddingHorizontal: 5 }}>
+                    <Text style={styles.inputLabel}>Current Supply</Text>
+                    <TextInput
+                      style={[
+                        styles.refillInput,
+                        errors.currentSupply && styles.inputError,
+                      ]}
+                      placeholder="Quantity"
+                      placeholderTextColor="#999"
+                      value={form.currentSupply}
+                      onChangeText={(text) => {
+                        setForm({ ...form, currentSupply: text });
+                        if (errors.currentSupply) {
+                          setErrors({ ...errors, currentSupply: "" });
+                        }
+                      }}
+                      keyboardType="numeric"
+                    />
+                    {errors.currentSupply && (
+                      <Text style={styles.errorText}>{errors.currentSupply}</Text>
+                    )}
+                  </View>
+                  <View style={{ flex: 1, paddingHorizontal: 5 }}>
+                    <Text style={styles.inputLabel}>Alert at</Text>
+                    <TextInput
+                      style={[
+                        styles.refillInput,
+                        errors.refillAt && styles.inputError,
+                      ]}
+                      placeholder="Quantity"
+                      placeholderTextColor="#999"
+                      value={form.refillAt}
+                      onChangeText={(text) => {
+                        setForm({ ...form, refillAt: text });
+                        if (errors.refillAt) {
+                          setErrors({ ...errors, refillAt: "" });
+                        }
+                      }}
+                      keyboardType="numeric"
+                    />
+                    {errors.refillAt && (
+                      <Text style={styles.errorText}>{errors.refillAt}</Text>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
+          </View>
+
           {/* Notes */}
           <View style={styles.section}>
             <TextInput
@@ -507,108 +588,27 @@ export default function AddMedicationScreen() {
               numberOfLines={4}
               textAlignVertical="top"
             />
-                  </View>
-
-          {/* Reminders - After scroll */}
-          <View style={styles.section}>
-            <View style={styles.settingRow}>
-                  <View>
-                <Text style={styles.settingLabel}>Reminders</Text>
-                <Text style={styles.settingSubLabel}>
-                      Get notified when it's time to take your medication
-                    </Text>
-                </View>
-                <Switch
-                  value={form.reminderEnabled}
-                  onValueChange={(value) =>
-                    setForm({ ...form, reminderEnabled: value })
-                  }
-                trackColor={{ false: "#ddd", true: "#5669FF" }}
-                  thumbColor="white"
-                ios_backgroundColor="#ddd"
-                />
-            </View>
           </View>
 
-          {/* Refill Tracking - After scroll */}
+          {/* Reminders - After notes */}
           <View style={styles.section}>
             <View style={styles.settingRow}>
-                  <View>
-                <Text style={styles.settingLabel}>Refill Tracking</Text>
+              <View>
+                <Text style={styles.settingLabel}>Reminders</Text>
                 <Text style={styles.settingSubLabel}>
-                      Get notified when you need to refill
-                    </Text>
-                </View>
-                <Switch
-                  value={form.refillReminder}
-                  onValueChange={(value) => {
-                    setForm({ ...form, refillReminder: value });
-                    if (!value) {
-                      setErrors({
-                        ...errors,
-                        currentSupply: "",
-                        refillAt: "",
-                      });
-                    }
-                  }}
-                trackColor={{ false: "#ddd", true: "#5669FF" }}
-                  thumbColor="white"
-                ios_backgroundColor="#ddd"
-                />
+                  Get notified when it's time to take your medication
+                </Text>
               </View>
-            
-              {form.refillReminder && (
-                <View style={styles.refillInputs}>
-                  <View style={styles.inputRow}>
-                  <View style={{ flex: 1, paddingHorizontal: 5 }}>
-                    <Text style={styles.inputLabel}>Current Supply</Text>
-                      <TextInput
-                        style={[
-                        styles.refillInput,
-                          errors.currentSupply && styles.inputError,
-                        ]}
-                      placeholder="Quantity"
-                        placeholderTextColor="#999"
-                        value={form.currentSupply}
-                        onChangeText={(text) => {
-                          setForm({ ...form, currentSupply: text });
-                          if (errors.currentSupply) {
-                            setErrors({ ...errors, currentSupply: "" });
-                          }
-                        }}
-                        keyboardType="numeric"
-                      />
-                      {errors.currentSupply && (
-                        <Text style={styles.errorText}>
-                          {errors.currentSupply}
-                        </Text>
-                      )}
-                    </View>
-                  <View style={{ flex: 1, paddingHorizontal: 5 }}>
-                    <Text style={styles.inputLabel}>Alert at</Text>
-                      <TextInput
-                        style={[
-                        styles.refillInput,
-                          errors.refillAt && styles.inputError,
-                        ]}
-                      placeholder="Quantity"
-                        placeholderTextColor="#999"
-                        value={form.refillAt}
-                        onChangeText={(text) => {
-                          setForm({ ...form, refillAt: text });
-                          if (errors.refillAt) {
-                            setErrors({ ...errors, refillAt: "" });
-                          }
-                        }}
-                        keyboardType="numeric"
-                      />
-                      {errors.refillAt && (
-                        <Text style={styles.errorText}>{errors.refillAt}</Text>
-                      )}
-                    </View>
-                  </View>
-                </View>
-              )}
+              <Switch
+                value={form.reminderEnabled}
+                onValueChange={(value) =>
+                  setForm({ ...form, reminderEnabled: value })
+                }
+                trackColor={{ false: "#ddd", true: "#1976D2" }}
+                thumbColor="white"
+                ios_backgroundColor="#ddd"
+              />
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -654,13 +654,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#d9e8ff",
   },
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   backButton: {
     padding: 8,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: "600",
-    color: "#333",
+    color: "white",
     marginLeft: 10,
   },
   formContainer: {
@@ -759,7 +763,9 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   timePickerButton: {
-    padding: 5,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(25, 118, 210, 0.1)", // Light blue background
   },
   notesInput: {
     height: 100,
@@ -818,32 +824,43 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   footer: {
+    display: 'flex',
+    alignItems: 'center',
     flexDirection: "row",
     justifyContent: "space-between",
-    padding: 20,
+    padding: 5,
     borderTopWidth: 1,
     borderTopColor: "#d9e8ff",
     backgroundColor: "#f0f7ff",
   },
   cancelButton: {
     flex: 1,
-    padding: 15,
+    padding: 0,
     justifyContent: "center",
     alignItems: "center",
+    marginBottom: 40,
   },
   cancelButtonText: {
     fontSize: 18,
     color: "#333",
   },
   saveButton: {
-    flex: 1,
-    padding: 15,
-    justifyContent: "center",
+    backgroundColor: "#1976D2", // Change to blue
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
     alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 40,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   saveButtonText: {
     fontSize: 18,
-    color: "#5669FF",
+    color: "white",
     fontWeight: "600",
   },
   pickerContainer: {

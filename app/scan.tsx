@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,14 +10,15 @@ import {
   Modal,
   ScrollView,
   Image,
+  ProgressBarAndroid,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { extractMedicineData, Medicine, convertToAppMedication } from '../utils/medicineTextExtraction';
-import { Camera as CameraIcon, Upload, X, FileText } from 'lucide-react-native';
+import { Camera as CameraIcon, Upload, X, FileText, CreditCard } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { getMedications, addMedication } from '../utils/storage';
+import { getMedications, addMedication, getUserCredits, useCredit, UserCredits } from '../utils/storage';
 
 // When a scan is completed, make sure it's saved to AsyncStorage
 async function validateAndRefreshMedications(medicines: any[]): Promise<boolean> {
@@ -100,9 +101,40 @@ export default function ScanScreen() {
   const [showRawText, setShowRawText] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [processSuccess, setProcessSuccess] = useState(false);
+  const [credits, setCredits] = useState<UserCredits | null>(null);
+  const [creditsLoading, setCreditsLoading] = useState(true);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+  // Load user credits when component mounts
+  useEffect(() => {
+    const loadCredits = async () => {
+      try {
+        setCreditsLoading(true);
+        const userCredits = await getUserCredits();
+        setCredits(userCredits);
+      } catch (error) {
+        console.error('Error loading credits:', error);
+      } finally {
+        setCreditsLoading(false);
+      }
+    };
+
+    loadCredits();
+  }, []);
 
   const processImage = async (base64Image: string) => {
     try {
+      // Check if user has available credits
+      const hasCredits = await useCredit();
+      if (!hasCredits) {
+        setShowUpgradeModal(true);
+        return;
+      }
+      
+      // Update the local credits state
+      const updatedCredits = await getUserCredits();
+      setCredits(updatedCredits);
+      
       setIsProcessing(true);
       setError(null);
       
@@ -243,12 +275,46 @@ export default function ScanScreen() {
     setProcessSuccess(false);
   };
 
+  const navigateToSubscription = () => {
+    // Navigate to subscription page
+    router.push('/subscription');
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
         colors={['#a64bf4', '#c56cf0']}
         style={styles.gradientBackground}
       >
+        {/* Credits indicator */}
+        <TouchableOpacity 
+          style={styles.creditsContainer}
+          onPress={navigateToSubscription}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.creditsText}>
+            {creditsLoading ? 'Loading credits...' : `Credits: ${credits?.availableCredits || 0}/5`}
+          </Text>
+          {Platform.OS === 'android' ? (
+            <ProgressBarAndroid
+              styleAttr="Horizontal"
+              indeterminate={false}
+              progress={(credits?.availableCredits || 0) / 5}
+              style={styles.progressBar}
+              color="#ffffff"
+            />
+          ) : (
+            <View style={[styles.progressBar, { backgroundColor: 'rgba(255, 255, 255, 0.3)' }]}>
+              <View 
+                style={[
+                  styles.progressFill, 
+                  { width: `${((credits?.availableCredits || 0) / 5) * 100}%` }
+                ]} 
+              />
+            </View>
+          )}
+        </TouchableOpacity>
+
         {selectedImage ? (
           <View style={styles.imageContainer}>
             <Image source={{ uri: selectedImage }} style={styles.previewImage} />
@@ -350,6 +416,46 @@ export default function ScanScreen() {
                   {extractedText || 'No text extracted'}
                 </Text>
               </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Upgrade Plan Modal */}
+        <Modal
+          visible={showUpgradeModal}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setShowUpgradeModal(false)}
+        >
+          <View style={styles.upgradeModalContainer}>
+            <View style={styles.upgradeModalContent}>
+              <LinearGradient
+                colors={['#8e2de2', '#4a00e0']}
+                style={styles.upgradeModalGradient}
+              >
+                <CreditCard size={50} color="#ffffff" style={styles.upgradeIcon} />
+                <Text style={styles.upgradeTitle}>Credits Used Up!</Text>
+                <Text style={styles.upgradeText}>
+                  You've used all your daily prescription scan credits. Upgrade to our Premium plan for unlimited scans and more features!
+                </Text>
+                
+                <TouchableOpacity 
+                  style={styles.upgradeButton} 
+                  onPress={() => {
+                    navigateToSubscription();
+                    setShowUpgradeModal(false);
+                  }}
+                >
+                  <Text style={styles.upgradeButtonText}>Upgrade Plan</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.laterButton} 
+                  onPress={() => setShowUpgradeModal(false)}
+                >
+                  <Text style={styles.laterButtonText}>Maybe Later</Text>
+                </TouchableOpacity>
+              </LinearGradient>
             </View>
           </View>
         </Modal>
@@ -555,5 +661,98 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1C1C1E',
     lineHeight: 24,
+  },
+  creditsContainer: {
+    position: 'absolute',
+    top: 40,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    zIndex: 10,
+  },
+  creditsText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  progressBar: {
+    height: 10,
+    borderRadius: 5,
+    width: '100%',
+    marginBottom: 20,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 5,
+  },
+  upgradeModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  upgradeModalContent: {
+    width: '100%',
+    maxWidth: 350,
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  upgradeModalGradient: {
+    padding: 30,
+    alignItems: 'center',
+  },
+  upgradeIcon: {
+    marginBottom: 15,
+  },
+  upgradeTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  upgradeText: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 25,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  upgradeButton: {
+    backgroundColor: '#ffffff',
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  upgradeButtonText: {
+    color: '#8e2de2',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  laterButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  laterButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
   },
 });
